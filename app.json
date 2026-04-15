@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Ard Seandálaíocht",
+    "slug": "irish-archaeology",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a3a2a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.irisharchaeology.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We use your location to show archaeology sites near you.",
+        "NSLocationAlwaysUsageDescription": "We use your location to show archaeology sites near you."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a3a2a"
+      },
+      "package": "com.irisharchaeology.app",
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "We use your location to show archaeology sites near you."
+        }
+      ]
+    ],
+    "scheme": "irisharchaeology",
+    "extra": {
+      "MAPBOX_ACCESS_TOKEN": "YOUR_MAPBOX_TOKEN_HERE",
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}
