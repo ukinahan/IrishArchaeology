@@ -1,4 +1,4 @@
-# Ard Seandálaíocht — Irish Archaeology App
+# Evin Cairn — Irish Archaeology App
 
 **"Open the app anywhere in Ireland and instantly understand the archaeology beneath your feet — in plain English."**
 
@@ -135,4 +135,4 @@ All site descriptions are original, written for a general audience.
 
 ## Licence
 
-MIT for code · Site content © Ard Seandálaíocht
+MIT for code · Site content © Evin Cairn

@@ -17,8 +17,10 @@ import { PeriodBadge } from '@/components/PeriodBadge';
 
 export default function SavedScreen() {
   const router = useRouter();
-  const savedSites = useSiteStore((s) => s.getSavedSites());
+  const allSites = useSiteStore((s) => s.allSites);
+  const savedSiteIds = useSiteStore((s) => s.savedSiteIds);
   const toggleSaved = useSiteStore((s) => s.toggleSaved);
+  const savedSites = allSites.filter((s) => savedSiteIds.has(s.id));
 
   const renderItem: ListRenderItem<ArchSite> = ({ item }) => (
     <TouchableOpacity

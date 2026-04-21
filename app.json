@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Ard Seandálaíocht",
+    "name": "Evin Cairn",
     "slug": "irish-archaeology",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,9 +14,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.irisharchaeology.app",
+      "buildNumber": "4",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "We use your location to show archaeology sites near you.",
-        "NSLocationAlwaysUsageDescription": "We use your location to show archaeology sites near you."
+        "NSLocationAlwaysUsageDescription": "We use your location to show archaeology sites near you.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -47,7 +49,11 @@
       "MAPBOX_ACCESS_TOKEN": "YOUR_MAPBOX_TOKEN_HERE",
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "2da52c0d-0808-4934-8ac6-392af33b805f"
       }
-    }
+    },
+    "owner": "ukinahan"
   }
 }

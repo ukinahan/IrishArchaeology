@@ -9,7 +9,7 @@ import {
   Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocation } from '@/hooks/useLocation';
@@ -20,10 +20,12 @@ import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 export default function ExploreScreen() {
   const router = useRouter();
   const { lat, lng, heading, loading: locLoading, error: locError, refresh } = useLocation();
-  const { allSites } = useSiteStore();
+  const { allSites, loadSitesNear, initFromCache } = useSiteStore();
   const [inference, setInference] = useState<Inference | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => { initFromCache(); }, []);
 
   const startPulse = () => {
     Animated.sequence([
@@ -40,9 +42,10 @@ export default function ExploreScreen() {
     startPulse();
     setAnalyzing(true);
     setInference(null);
-    // Simulate brief analysis pause for UX weight
-    await new Promise((r) => setTimeout(r, 800));
-    const result = inferFromLocation(lat, lng, allSites, heading);
+    // Fetch nearby sites from the NMS API before inferring
+    await loadSitesNear(lat, lng, 5);
+    const currentSites = useSiteStore.getState().allSites;
+    const result = inferFromLocation(lat, lng, currentSites, heading);
     setInference(result);
     setAnalyzing(false);
   };

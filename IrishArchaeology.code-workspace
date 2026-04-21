@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"name": "Irish Archaeology",
+			"path": "."
+		}
+	],
+	"settings": {
+		"window.title": "Irish Archaeology — ${activeEditorShort}${separator}${rootName}",
+		"terminal.integrated.cwd": "C:\\Users\\kinahanultan\\IrishArchaeology"
+	}
+}

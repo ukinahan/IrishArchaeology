@@ -1,12 +1,12 @@
 // app/(tabs)/index.tsx  —  Nearby Map screen
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocation } from '@/hooks/useLocation';
-import { useSiteStore, AVAILABLE_COUNTIES } from '@/store/useSiteStore';
+import { useSiteStore, getAvailableCounties } from '@/store/useSiteStore';
 import { PeriodFilterBar } from '@/components/PeriodFilterBar';
 import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
@@ -23,7 +23,26 @@ export default function NearbyScreen() {
   const router = useRouter();
   const { lat, lng, loading, error, refresh } = useLocation();
   const { radiusKm, setRadiusKm, activePeriodFilter, setActivePeriodFilter,
-          activeCountyFilter, setActiveCountyFilter, getSitesNear } = useSiteStore();
+          activeCountyFilter, setActiveCountyFilter, getSitesNear,
+          loadSitesNear, loadSitesByCounty, initFromCache, isLoading: sitesLoading, allSites } = useSiteStore();
+
+  const AVAILABLE_COUNTIES = getAvailableCounties(allSites);
+
+  // Load cached sites on mount, then fetch from API when location is available
+  useEffect(() => { initFromCache(); }, []);
+  useEffect(() => {
+    if (lat && lng) {
+      loadSitesNear(lat, lng, radiusKm ?? 50);
+    }
+  }, [lat, lng]);
+
+  const handleCountyPress = useCallback(
+    (county: string | null) => {
+      setActiveCountyFilter(county);
+      if (county) loadSitesByCounty(county);
+    },
+    [setActiveCountyFilter, loadSitesByCounty],
+  );
 
   const sites = lat && lng ? getSitesNear(lat, lng) : [];
 
@@ -61,7 +80,7 @@ export default function NearbyScreen() {
             <TouchableOpacity
               key={c}
               style={[styles.radiusChip, isActive && styles.radiusChipActive]}
-              onPress={() => setActiveCountyFilter(c === 'All' ? null : c)}
+              onPress={() => handleCountyPress(c === 'All' ? null : c)}
             >
               <Text style={[styles.radiusChipText, isActive && styles.radiusChipTextActive]}>Co. {c === 'All' ? 'All' : c}</Text>
             </TouchableOpacity>
@@ -113,8 +132,8 @@ export default function NearbyScreen() {
             initialRegion={{
               latitude: lat,
               longitude: lng,
-              latitudeDelta: radiusKm * 0.02,
-              longitudeDelta: radiusKm * 0.02,
+              latitudeDelta: (radiusKm ?? 1) * 0.02,
+              longitudeDelta: (radiusKm ?? 1) * 0.02,
             }}
             showsUserLocation
             showsMyLocationButton={false}

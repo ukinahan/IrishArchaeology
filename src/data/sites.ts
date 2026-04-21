@@ -20,9 +20,9 @@ export interface ArchSite {
   lng: number;
   // Card content
   whatItIs: string;
-  whyItMatters: string;
-  whenUsed: { start: number; end: number }; // approximate years (negative = BC)
-  whatToLookFor: string;
+  whyItMatters?: string;
+  whenUsed?: { start: number; end: number }; // approximate years (negative = BC)
+  whatToLookFor?: string;
   // Trust & safety
   accessStatus: AccessStatus;
   accessNote: string;

@@ -31,7 +31,7 @@ export function SiteCard({ site }: Props) {
   const handleShare = async () => {
     await Share.share({
       title: site.name,
-      message: `Check out ${site.name} on Ard Seandálaíocht — ${site.whatItIs}\n\nirisharchaeology://site/${site.id}`,
+      message: `Check out ${site.name} on Evin Cairn — ${site.whatItIs}\n\nirisharchaeology://site/${site.id}`,
     });
   };
 
@@ -81,22 +81,28 @@ export function SiteCard({ site }: Props) {
         </Section>
 
         {/* Why it matters */}
-        <Section label="Why it matters">
-          <Text style={styles.bodyText}>{site.whyItMatters}</Text>
-        </Section>
+        {site.whyItMatters ? (
+          <Section label="Why it matters">
+            <Text style={styles.bodyText}>{site.whyItMatters}</Text>
+          </Section>
+        ) : null}
 
         {/* Timeline */}
-        <Section label="When it was used">
-          <TimelineBar start={site.whenUsed.start} end={site.whenUsed.end} />
-        </Section>
+        {site.whenUsed ? (
+          <Section label="When it was used">
+            <TimelineBar start={site.whenUsed.start} end={site.whenUsed.end} />
+          </Section>
+        ) : null}
 
         {/* What to look for */}
-        <Section label="What to look for today">
-          <View style={styles.lookForBox}>
-            <Ionicons name="eye-outline" size={16} color={COLORS.gold} />
-            <Text style={styles.lookForText}>{site.whatToLookFor}</Text>
-          </View>
-        </Section>
+        {site.whatToLookFor ? (
+          <Section label="What to look for today">
+            <View style={styles.lookForBox}>
+              <Ionicons name="eye-outline" size={16} color={COLORS.gold} />
+              <Text style={styles.lookForText}>{site.whatToLookFor}</Text>
+            </View>
+          </Section>
+        ) : null}
 
         {/* Trust & safety */}
         <Section label="Access & protection">
