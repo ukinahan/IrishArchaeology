@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx  —  Nearby Map screen
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, ScrollView, Modal, FlatList, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -8,6 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocation } from '@/hooks/useLocation';
 import { useSiteStore, getAvailableCounties } from '@/store/useSiteStore';
 import { PeriodFilterBar } from '@/components/PeriodFilterBar';
+import { PulsingOrbs } from '@/components/PulsingOrbs';
 import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 
@@ -28,6 +29,8 @@ export default function NearbyScreen() {
           loadSitesNear, loadSitesByCounty, initFromCache, isLoading: sitesLoading, allSites } = useSiteStore();
 
   const AVAILABLE_COUNTIES = getAvailableCounties(allSites);
+  const [countyPickerOpen, setCountyPickerOpen] = useState(false);
+  const [countyLoading, setCountyLoading] = useState(false);
 
   // Load cached sites on mount, then fetch from API when location is available
   useEffect(() => { initFromCache(); }, []);
@@ -37,12 +40,20 @@ export default function NearbyScreen() {
     }
   }, [lat, lng]);
 
-  const handleCountyPress = useCallback(
-    (county: string | null) => {
+  const handleCountySelect = useCallback(
+    async (county: string | null) => {
+      setCountyPickerOpen(false);
+      if (county === activeCountyFilter) return;
       setActiveCountyFilter(county);
-      if (county) loadSitesByCounty(county);
+      if (county) {
+        setCountyLoading(true);
+        await loadSitesByCounty(county);
+        setCountyLoading(false);
+      } else {
+        setCountyLoading(false);
+      }
     },
-    [setActiveCountyFilter, loadSitesByCounty],
+    [setActiveCountyFilter, loadSitesByCounty, activeCountyFilter],
   );
 
   const sites = lat && lng ? getSitesNear(lat, lng) : [];
@@ -72,22 +83,53 @@ export default function NearbyScreen() {
       {/* Period filter */}
       <PeriodFilterBar active={activePeriodFilter} onChange={setActivePeriodFilter} />
 
-      {/* County filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.countyRow} style={styles.countyScroll}>
-        {AVAILABLE_COUNTIES.map((c) => {
-          const isActive = c === 'All' ? activeCountyFilter === null : activeCountyFilter === c;
-          return (
-            <TouchableOpacity
-              key={c}
-              style={[styles.radiusChip, isActive && styles.radiusChipActive]}
-              onPress={() => handleCountyPress(c === 'All' ? null : c)}
-            >
-              <Text style={[styles.radiusChipText, isActive && styles.radiusChipTextActive]}>Co. {c === 'All' ? 'All' : c}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      {/* County dropdown */}
+      <View style={styles.countyDropdownRow}>
+        <Text style={styles.radiusLabel}>County:</Text>
+        <TouchableOpacity
+          style={styles.countyDropdown}
+          onPress={() => setCountyPickerOpen(true)}
+          accessibilityLabel="Select county"
+          accessibilityRole="button"
+        >
+          <Text style={styles.countyDropdownText}>
+            {activeCountyFilter ? `Co. ${activeCountyFilter}` : 'All Counties'}
+          </Text>
+          <Ionicons name="chevron-down" size={16} color={COLORS.stoneLight} />
+        </TouchableOpacity>
+      </View>
+
+      {/* County picker modal */}
+      <Modal visible={countyPickerOpen} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setCountyPickerOpen(false)}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select County</Text>
+              <TouchableOpacity onPress={() => setCountyPickerOpen(false)}>
+                <Ionicons name="close" size={24} color={COLORS.parchment} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={AVAILABLE_COUNTIES}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => {
+                const isActive = item === 'All' ? activeCountyFilter === null : activeCountyFilter === item;
+                return (
+                  <TouchableOpacity
+                    style={[styles.modalItem, isActive && styles.modalItemActive]}
+                    onPress={() => handleCountySelect(item === 'All' ? null : item)}
+                  >
+                    <Text style={[styles.modalItemText, isActive && styles.modalItemTextActive]}>
+                      {item === 'All' ? 'All Counties' : `Co. ${item}`}
+                    </Text>
+                    {isActive && <Ionicons name="checkmark" size={18} color={COLORS.forestDark} />}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* Radius selector */}
       <View style={styles.radiusRow}>
@@ -112,6 +154,13 @@ export default function NearbyScreen() {
           <View style={styles.overlay}>
             <ActivityIndicator color={COLORS.gold} size="large" />
             <Text style={styles.overlayText}>Finding your location…</Text>
+          </View>
+        )}
+
+        {countyLoading && (
+          <View style={styles.overlay}>
+            <PulsingOrbs size={20} />
+            <Text style={[styles.overlayText, { marginTop: 16 }]}>Loading county sites…</Text>
           </View>
         )}
 
@@ -261,8 +310,76 @@ const styles = StyleSheet.create({
     borderRadius: RADII.full,
   },
   retryText: { color: COLORS.forestDark, fontWeight: '700', fontSize: FONTS.sizes.md },
-  countyScroll: { flexGrow: 0 },
-  countyRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingBottom: 8 },
+  countyDropdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  countyDropdown: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.forestMid,
+    borderWidth: 1,
+    borderColor: COLORS.forestLight,
+    borderRadius: RADII.sm,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  countyDropdownText: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.parchment,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: COLORS.forestDark,
+    borderTopLeftRadius: RADII.lg,
+    borderTopRightRadius: RADII.lg,
+    maxHeight: '60%',
+    paddingBottom: 32,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.forestLight,
+  },
+  modalTitle: {
+    fontSize: FONTS.sizes.lg,
+    fontWeight: '700',
+    color: COLORS.parchment,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.forestLight,
+  },
+  modalItemActive: {
+    backgroundColor: COLORS.gold,
+  },
+  modalItemText: {
+    fontSize: FONTS.sizes.md,
+    color: COLORS.parchment,
+  },
+  modalItemTextActive: {
+    color: COLORS.forestDark,
+    fontWeight: '700',
+  },
   markerWrapper: { alignItems: 'center' },
   markerOuter: {
     width: 46,
