@@ -12,12 +12,27 @@ import { PulsingOrbs } from '@/components/PulsingOrbs';
 import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 
-// Cap markers rendered on the map for performance.
-const MAX_MARKERS = 150;
+// Cap markers rendered on the map for performance. Native pins are cheap so
+// we can show more than custom-view markers.
+const MAX_MARKERS = 400;
 // Debounce dynamic bbox fetches as user pans/zooms.
 const BBOX_FETCH_DEBOUNCE_MS = 600;
 // Don't bother fetching when zoomed too far out (slow + low value).
 const MAX_BBOX_DELTA_DEG = 1.5;
+
+// Map period -> a hex pinColor for the native MapKit pin. Using native pins
+// (instead of custom child views) avoids a known react-native-maps crash
+// where AIRMap.insertReactSubview can be called with a nil subview when the
+// markers array changes rapidly.
+const PIN_COLOR: Record<string, string> = {
+  stone_age: '#8a7a5f',
+  bronze_age: '#cd7f32',
+  iron_age: '#6b5d3f',
+  early_christian: '#c0a060',
+  early_medieval: '#a85a3a',
+  medieval: '#7a3a3a',
+  post_medieval: '#5c5c8a',
+};
 
 // All 26 counties of the Republic of Ireland—shown in the picker even before
 // their sites have been loaded.
@@ -345,34 +360,18 @@ export default function NearbyScreen() {
             onMapReady={handleMapReady}
             onRegionChangeComplete={handleRegionChangeComplete}
           >
-            {/* Site markers */}
+            {/* Site markers — use native pins (no custom child views) to
+                avoid the AIRMap insertReactSubview nil crash. */}
             {sites.map((site) => (
               <Marker
                 key={site.id}
                 coordinate={{ latitude: site.lat, longitude: site.lng }}
-                onPress={() => handleSitePress(site.id)}
-                anchor={{ x: 0.5, y: 1 }}
+                title={site.name}
+                description={site.type}
+                pinColor={PIN_COLOR[site.period] ?? '#cd7f32'}
+                onCalloutPress={() => handleSitePress(site.id)}
                 tracksViewChanges={false}
-              >
-                <View style={styles.markerWrapper}>
-                  <View style={styles.markerOuter}>
-                    <View style={[styles.markerInner, { backgroundColor: PERIOD_COLORS[site.period] }]}>
-                      <Text style={styles.markerIcon}>
-                        {site.period === 'stone_age' ? '🪨'
-                          : site.period === 'bronze_age' ? '🥉'
-                          : site.period === 'early_medieval' || site.period === 'medieval' ? '🏰'
-                          : site.period === 'early_christian' ? '✝️'
-                          : site.period === 'post_medieval' ? '🧱'
-                          : '⚔️'}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={[styles.markerTail, { borderTopColor: PERIOD_COLORS[site.period] }]} />
-                  <View style={styles.markerLabel}>
-                    <Text style={styles.markerLabelText} numberOfLines={1}>{site.name}</Text>
-                  </View>
-                </View>
-              </Marker>
+              />
             ))}
           </MapView>
         ) : null}
