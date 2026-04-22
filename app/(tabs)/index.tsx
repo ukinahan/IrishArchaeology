@@ -360,15 +360,6 @@ export default function NearbyScreen() {
       <View style={styles.mapContainer}>
         {(lat && lng) || activeCountyFilter ? (
           <MapView
-            // Re-mount once county sites arrive so initialRegion picks up the
-            // proper bbox. Otherwise re-mount when location resolves.
-            key={`map-${activeCountyFilter ?? 'none'}-${
-              activeCountyFilter && allSites.some((s) => s.county === activeCountyFilter)
-                ? 'sites'
-                : lat && lng
-                ? 'loc'
-                : 'wait'
-            }`}
             ref={mapRef}
             style={styles.map}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
@@ -379,9 +370,18 @@ export default function NearbyScreen() {
             onMapReady={handleMapReady}
             onRegionChangeComplete={handleRegionChangeComplete}
           >
-            {/* Site markers — use native pins (no custom child views) to
-                avoid the AIRMap insertReactSubview nil crash. */}
-            {sites.map((site) => (
+            {/* Site markers — only render after the native map is ready to
+                avoid the AIRMap insertReactSubview nil crash that occurs
+                when subviews are mounted in the same transaction. */}
+            {mapReady && sites
+              .filter(
+                (site) =>
+                  typeof site.lat === 'number' &&
+                  typeof site.lng === 'number' &&
+                  Number.isFinite(site.lat) &&
+                  Number.isFinite(site.lng),
+              )
+              .map((site) => (
               <Marker
                 key={site.id}
                 coordinate={{ latitude: site.lat, longitude: site.lng }}
