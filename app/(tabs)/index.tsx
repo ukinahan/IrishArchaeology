@@ -44,6 +44,39 @@ const ALL_IRISH_COUNTIES = [
   'Wexford', 'Wicklow',
 ];
 
+// Approximate geographic centres + zoom deltas for each county. Used as the
+// map's initialRegion when a county is preselected but its sites haven't
+// loaded yet (otherwise the map opens on a wide Ireland view that often
+// drifts into the Atlantic depending on screen aspect ratio).
+const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number; latDelta: number; lngDelta: number }> = {
+  Carlow:    { lat: 52.7210, lng: -6.8340, latDelta: 0.50, lngDelta: 0.50 },
+  Cavan:     { lat: 53.9900, lng: -7.3600, latDelta: 0.80, lngDelta: 0.90 },
+  Clare:     { lat: 52.9050, lng: -9.0000, latDelta: 0.90, lngDelta: 1.10 },
+  Cork:      { lat: 51.9000, lng: -8.7000, latDelta: 1.20, lngDelta: 1.60 },
+  Donegal:   { lat: 54.9200, lng: -8.0000, latDelta: 1.40, lngDelta: 1.60 },
+  Dublin:    { lat: 53.4000, lng: -6.2700, latDelta: 0.55, lngDelta: 0.50 },
+  Galway:    { lat: 53.3000, lng: -8.9500, latDelta: 1.20, lngDelta: 1.80 },
+  Kerry:     { lat: 52.1500, lng: -9.7000, latDelta: 1.20, lngDelta: 1.40 },
+  Kildare:   { lat: 53.1500, lng: -6.8000, latDelta: 0.65, lngDelta: 0.55 },
+  Kilkenny:  { lat: 52.5400, lng: -7.2500, latDelta: 0.75, lngDelta: 0.65 },
+  Laois:     { lat: 52.9940, lng: -7.3320, latDelta: 0.65, lngDelta: 0.65 },
+  Leitrim:   { lat: 54.1240, lng: -8.0000, latDelta: 0.75, lngDelta: 0.55 },
+  Limerick:  { lat: 52.5200, lng: -8.7500, latDelta: 0.70, lngDelta: 0.95 },
+  Longford:  { lat: 53.7270, lng: -7.7930, latDelta: 0.55, lngDelta: 0.55 },
+  Louth:     { lat: 53.9250, lng: -6.4900, latDelta: 0.50, lngDelta: 0.45 },
+  Mayo:      { lat: 53.9000, lng: -9.3000, latDelta: 1.20, lngDelta: 1.60 },
+  Meath:     { lat: 53.6050, lng: -6.6560, latDelta: 0.75, lngDelta: 0.85 },
+  Monaghan:  { lat: 54.2490, lng: -6.9680, latDelta: 0.55, lngDelta: 0.55 },
+  Offaly:    { lat: 53.2350, lng: -7.7120, latDelta: 0.70, lngDelta: 0.85 },
+  Roscommon: { lat: 53.7570, lng: -8.2680, latDelta: 0.95, lngDelta: 0.75 },
+  Sligo:     { lat: 54.2700, lng: -8.4760, latDelta: 0.70, lngDelta: 0.85 },
+  Tipperary: { lat: 52.6000, lng: -7.9000, latDelta: 1.10, lngDelta: 0.95 },
+  Waterford: { lat: 52.2500, lng: -7.4500, latDelta: 0.55, lngDelta: 0.95 },
+  Westmeath: { lat: 53.5350, lng: -7.4650, latDelta: 0.65, lngDelta: 0.85 },
+  Wexford:   { lat: 52.4500, lng: -6.5800, latDelta: 0.85, lngDelta: 0.75 },
+  Wicklow:   { lat: 52.9800, lng: -6.4400, latDelta: 0.75, lngDelta: 0.55 },
+};
+
 export default function NearbyScreen() {
   const router = useRouter();
   const { lat, lng, loading, error, refresh } = useLocation();
@@ -62,6 +95,7 @@ export default function NearbyScreen() {
   const [countyPickerOpen, setCountyPickerOpen] = useState(false);
   const [countyLoading, setCountyLoading] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
   const bboxFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitialCountyFocus = useRef(false);
   const pendingCountyFocus = useRef<string | null>(activeCountyFilter);
@@ -190,6 +224,7 @@ export default function NearbyScreen() {
   // while we're still animating into a focus, to avoid fetch storms / crashes.
   const handleRegionChangeComplete = useCallback(
     (region: Region) => {
+      setVisibleRegion(region);
       if (activeCountyFilter) return;
       if (pendingCountyFocus.current) return;
       if (region.latitudeDelta > MAX_BBOX_DELTA_DEG || region.longitudeDelta > MAX_BBOX_DELTA_DEG) {
@@ -239,6 +274,18 @@ export default function NearbyScreen() {
           longitudeDelta: maxLng - minLng + lngPad,
         };
       }
+      // Sites for the county aren't loaded yet — fall back to a static
+      // centroid so the map opens roughly on the right place rather than
+      // the middle of Ireland (often the Atlantic on portrait phones).
+      const centroid = COUNTY_CENTROIDS[activeCountyFilter];
+      if (centroid) {
+        return {
+          latitude: centroid.lat,
+          longitude: centroid.lng,
+          latitudeDelta: centroid.latDelta,
+          longitudeDelta: centroid.lngDelta,
+        };
+      }
     }
     if (lat && lng) {
       return { latitude: lat, longitude: lng, latitudeDelta: 0.05, longitudeDelta: 0.05 };
@@ -257,6 +304,35 @@ export default function NearbyScreen() {
 
   const sites = useMemo(() => {
     if (allFilteredSites.length <= MAX_MARKERS) return allFilteredSites;
+
+    // Prefer markers within the currently visible map region. Without this
+    // we'd just slice the first MAX_MARKERS of the array — which after
+    // zooming into a single town often shows nothing because the visible
+    // tiles fall outside that arbitrary first slice.
+    if (visibleRegion) {
+      const minLat = visibleRegion.latitude - visibleRegion.latitudeDelta / 2;
+      const maxLat = visibleRegion.latitude + visibleRegion.latitudeDelta / 2;
+      const minLng = visibleRegion.longitude - visibleRegion.longitudeDelta / 2;
+      const maxLng = visibleRegion.longitude + visibleRegion.longitudeDelta / 2;
+      const inView = allFilteredSites.filter(
+        (s) => s.lat >= minLat && s.lat <= maxLat && s.lng >= minLng && s.lng <= maxLng,
+      );
+      if (inView.length > 0) {
+        if (inView.length <= MAX_MARKERS) return inView;
+        // Too many in view — keep those closest to the centre of the viewport.
+        const cLat = visibleRegion.latitude;
+        const cLng = visibleRegion.longitude;
+        return [...inView]
+          .sort((a, b) => {
+            const da = (a.lat - cLat) ** 2 + (a.lng - cLng) ** 2;
+            const db = (b.lat - cLat) ** 2 + (b.lng - cLng) ** 2;
+            return da - db;
+          })
+          .slice(0, MAX_MARKERS);
+      }
+      // Nothing in view — fall through to the default behaviour below.
+    }
+
     // When a county is selected, show first MAX_MARKERS (already focused on bbox)
     // Otherwise, show those closest to the user
     if (activeCountyFilter || !lat || !lng) return allFilteredSites.slice(0, MAX_MARKERS);
@@ -267,7 +343,7 @@ export default function NearbyScreen() {
         return da - db;
       })
       .slice(0, MAX_MARKERS);
-  }, [allFilteredSites, lat, lng, activeCountyFilter]);
+  }, [allFilteredSites, lat, lng, activeCountyFilter, visibleRegion]);
 
   const handleSitePress = useCallback(
     (siteId: string) => {
