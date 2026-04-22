@@ -3,7 +3,7 @@
     "name": "Evin Cairn",
     "slug": "irish-archaeology",
     "version": "1.0.0",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.irisharchaeology.app",
-      "buildNumber": "15",
+      "buildNumber": "16",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "We use your location to show archaeology sites near you.",
         "NSLocationAlwaysUsageDescription": "We use your location to show archaeology sites near you.",

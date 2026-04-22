@@ -1,10 +1,27 @@
-// app/(tabs)/index.tsx  —  Explorer Map screen
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Modal, FlatList, Pressable } from 'react-native';
+// app/(tabs)/index.tsx  —  Explorer Map screen (Mapbox)
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Modal, FlatList, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import Mapbox, { MapView, Camera, ShapeSource, CircleLayer, UserLocation } from '@rnmapbox/maps';
+import Constants from 'expo-constants';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+
+// Mapbox needs the public access token set once before any map is rendered.
+const MAPBOX_PUBLIC_TOKEN =
+  (Constants.expoConfig?.extra as any)?.MAPBOX_PUBLIC_TOKEN ||
+  (Constants.manifest as any)?.extra?.MAPBOX_PUBLIC_TOKEN ||
+  process.env.MAPBOX_PUBLIC_TOKEN ||
+  '';
+if (MAPBOX_PUBLIC_TOKEN) Mapbox.setAccessToken(MAPBOX_PUBLIC_TOKEN);
+
+// Light shim so existing region-based logic keeps compiling.
+type Region = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
 import { useLocation } from '@/hooks/useLocation';
 import { useSiteStore, getAvailableCounties } from '@/store/useSiteStore';
 import { PeriodFilterBar } from '@/components/PeriodFilterBar';
@@ -12,18 +29,16 @@ import { PulsingOrbs } from '@/components/PulsingOrbs';
 import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 
-// Cap markers rendered on the map for performance. Native pins are cheap so
-// we can show more than custom-view markers.
-const MAX_MARKERS = 400;
+// Cap markers rendered on the map for performance. With Mapbox's GL-rendered
+// CircleLayer this could be much higher, but capping keeps the per-feature
+// memory and tap hit-testing snappy.
+const MAX_MARKERS = 800;
 // Debounce dynamic bbox fetches as user pans/zooms.
 const BBOX_FETCH_DEBOUNCE_MS = 600;
 // Don't bother fetching when zoomed too far out (slow + low value).
 const MAX_BBOX_DELTA_DEG = 1.5;
 
-// Map period -> a hex pinColor for the native MapKit pin. Using native pins
-// (instead of custom child views) avoids a known react-native-maps crash
-// where AIRMap.insertReactSubview can be called with a nil subview when the
-// markers array changes rapidly.
+// Period -> circle colour rendered by Mapbox CircleLayer.
 const PIN_COLOR: Record<string, string> = {
   stone_age: '#8a7a5f',
   bronze_age: '#cd7f32',
@@ -81,6 +96,7 @@ export default function NearbyScreen() {
   const router = useRouter();
   const { lat, lng, loading, error, refresh } = useLocation();
   const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<Camera>(null);
   const { activePeriodFilter, setActivePeriodFilter,
           activeCountyFilter, setActiveCountyFilter, getSitesNear,
           loadSitesNear, loadSitesByCounty, loadSitesInBounds, initFromCache, allSites } = useSiteStore();
@@ -106,7 +122,7 @@ export default function NearbyScreen() {
       const countySites = useSiteStore
         .getState()
         .allSites.filter((s) => s.county === county);
-      if (countySites.length === 0 || !mapRef.current) return;
+      if (countySites.length === 0 || !cameraRef.current) return;
       let minLat = countySites[0].lat;
       let maxLat = countySites[0].lat;
       let minLng = countySites[0].lng;
@@ -117,15 +133,11 @@ export default function NearbyScreen() {
         if (s.lng < minLng) minLng = s.lng;
         if (s.lng > maxLng) maxLng = s.lng;
       }
-      const latPad = Math.max((maxLat - minLat) * 0.15, 0.02);
-      const lngPad = Math.max((maxLng - minLng) * 0.15, 0.02);
-      mapRef.current.animateToRegion(
-        {
-          latitude: (minLat + maxLat) / 2,
-          longitude: (minLng + maxLng) / 2,
-          latitudeDelta: maxLat - minLat + latPad,
-          longitudeDelta: maxLng - minLng + lngPad,
-        },
+      // Mapbox fitBounds(ne, sw, paddingPx, animMs)
+      cameraRef.current.fitBounds(
+        [maxLng, maxLat],
+        [minLng, minLat],
+        60,
         700,
       );
     } catch (e) {
@@ -206,12 +218,13 @@ export default function NearbyScreen() {
         }
       } else {
         setCountyLoading(false);
-        if (lat && lng && mapRef.current) {
+        if (lat && lng && cameraRef.current) {
           try {
-            mapRef.current.animateToRegion(
-              { latitude: lat, longitude: lng, latitudeDelta: 0.05, longitudeDelta: 0.05 },
-              500,
-            );
+            cameraRef.current.setCamera({
+              centerCoordinate: [lng, lat],
+              zoomLevel: 11,
+              animationDuration: 500,
+            });
           } catch {}
         }
       }
@@ -221,23 +234,38 @@ export default function NearbyScreen() {
 
   // Dynamically load additional sites when the user pans/zooms the map.
   // Skipped while a county filter is active (sites already fully loaded) and
-  // while we're still animating into a focus, to avoid fetch storms / crashes.
-  const handleRegionChangeComplete = useCallback(
-    (region: Region) => {
-      setVisibleRegion(region);
-      if (activeCountyFilter) return;
-      if (pendingCountyFocus.current) return;
-      if (region.latitudeDelta > MAX_BBOX_DELTA_DEG || region.longitudeDelta > MAX_BBOX_DELTA_DEG) {
-        return;
+  // while we're still animating into a focus, to avoid fetch storms.
+  const handleMapIdle = useCallback(
+    (state: any) => {
+      try {
+        const bounds = state?.properties?.bounds;
+        if (!bounds || !bounds.ne || !bounds.sw) return;
+        const [neLng, neLat] = bounds.ne as [number, number];
+        const [swLng, swLat] = bounds.sw as [number, number];
+        const minLat = Math.min(neLat, swLat);
+        const maxLat = Math.max(neLat, swLat);
+        const minLng = Math.min(neLng, swLng);
+        const maxLng = Math.max(neLng, swLng);
+        const region: Region = {
+          latitude: (minLat + maxLat) / 2,
+          longitude: (minLng + maxLng) / 2,
+          latitudeDelta: maxLat - minLat,
+          longitudeDelta: maxLng - minLng,
+        };
+        setVisibleRegion(region);
+
+        if (activeCountyFilter) return;
+        if (pendingCountyFocus.current) return;
+        if (region.latitudeDelta > MAX_BBOX_DELTA_DEG || region.longitudeDelta > MAX_BBOX_DELTA_DEG) {
+          return;
+        }
+        if (bboxFetchTimer.current) clearTimeout(bboxFetchTimer.current);
+        bboxFetchTimer.current = setTimeout(() => {
+          loadSitesInBounds(minLat, minLng, maxLat, maxLng).catch(() => {});
+        }, BBOX_FETCH_DEBOUNCE_MS);
+      } catch {
+        // ignore
       }
-      if (bboxFetchTimer.current) clearTimeout(bboxFetchTimer.current);
-      bboxFetchTimer.current = setTimeout(() => {
-        const minLat = region.latitude - region.latitudeDelta / 2;
-        const maxLat = region.latitude + region.latitudeDelta / 2;
-        const minLng = region.longitude - region.longitudeDelta / 2;
-        const maxLng = region.longitude + region.longitudeDelta / 2;
-        loadSitesInBounds(minLat, minLng, maxLat, maxLng).catch(() => {});
-      }, BBOX_FETCH_DEBOUNCE_MS);
     },
     [loadSitesInBounds, activeCountyFilter],
   );
@@ -352,6 +380,34 @@ export default function NearbyScreen() {
     [router],
   );
 
+  // Build a GeoJSON FeatureCollection for the Mapbox ShapeSource.
+  const sitesFeatureCollection = useMemo(() => {
+    return {
+      type: 'FeatureCollection' as const,
+      features: sites
+        .filter(
+          (s) =>
+            typeof s.lat === 'number' &&
+            typeof s.lng === 'number' &&
+            Number.isFinite(s.lat) &&
+            Number.isFinite(s.lng),
+        )
+        .map((s) => ({
+          type: 'Feature' as const,
+          id: s.id,
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [s.lng, s.lat],
+          },
+          properties: {
+            id: s.id,
+            name: s.name,
+            color: PIN_COLOR[s.period] ?? '#cd7f32',
+          },
+        })),
+    };
+  }, [sites]);
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
@@ -438,36 +494,52 @@ export default function NearbyScreen() {
           <MapView
             ref={mapRef}
             style={styles.map}
-            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-            initialRegion={initialRegion}
-            showsUserLocation={!!(lat && lng)}
-            showsMyLocationButton={false}
-            mapType="hybrid"
-            onMapReady={handleMapReady}
-            onRegionChangeComplete={handleRegionChangeComplete}
+            styleURL={Mapbox.StyleURL.SatelliteStreet}
+            scaleBarEnabled={false}
+            logoEnabled={true}
+            attributionEnabled={true}
+            onDidFinishLoadingMap={handleMapReady}
+            onMapIdle={handleMapIdle}
           >
-            {/* Site markers — only render after the native map is ready to
-                avoid the AIRMap insertReactSubview nil crash that occurs
-                when subviews are mounted in the same transaction. */}
-            {mapReady && sites
-              .filter(
-                (site) =>
-                  typeof site.lat === 'number' &&
-                  typeof site.lng === 'number' &&
-                  Number.isFinite(site.lat) &&
-                  Number.isFinite(site.lng),
-              )
-              .map((site) => (
-              <Marker
-                key={site.id}
-                coordinate={{ latitude: site.lat, longitude: site.lng }}
-                title={site.name}
-                description={site.type}
-                pinColor={PIN_COLOR[site.period] ?? '#cd7f32'}
-                onCalloutPress={() => handleSitePress(site.id)}
-                tracksViewChanges={false}
-              />
-            ))}
+            <Camera
+              ref={cameraRef}
+              defaultSettings={{
+                centerCoordinate: [initialRegion.longitude, initialRegion.latitude],
+                zoomLevel: deltaToZoom(initialRegion.latitudeDelta),
+              }}
+            />
+            {!!(lat && lng) && <UserLocation visible animated />}
+
+            {mapReady && sitesFeatureCollection.features.length > 0 && (
+              <ShapeSource
+                id="sites-source"
+                shape={sitesFeatureCollection}
+                onPress={(e) => {
+                  const f = e.features?.[0];
+                  const id = (f?.properties as any)?.id;
+                  if (id) handleSitePress(String(id));
+                }}
+              >
+                <CircleLayer
+                  id="sites-circles"
+                  style={{
+                    circleRadius: [
+                      'interpolate',
+                      ['linear'],
+                      ['zoom'],
+                      6, 3,
+                      10, 5,
+                      14, 7,
+                      18, 10,
+                    ],
+                    circleColor: ['get', 'color'],
+                    circleStrokeColor: '#ffffff',
+                    circleStrokeWidth: 1.5,
+                    circleOpacity: 0.95,
+                  }}
+                />
+              </ShapeSource>
+            )}
           </MapView>
         ) : null}
 
@@ -507,15 +579,11 @@ export default function NearbyScreen() {
             const loc = await import('expo-location').then((m) =>
               m.getCurrentPositionAsync({ accuracy: m.Accuracy.Balanced }),
             );
-            mapRef.current?.animateToRegion(
-              {
-                latitude: loc.coords.latitude,
-                longitude: loc.coords.longitude,
-                latitudeDelta: 0.05,
-                longitudeDelta: 0.05,
-              },
-              600,
-            );
+            cameraRef.current?.setCamera({
+              centerCoordinate: [loc.coords.longitude, loc.coords.latitude],
+              zoomLevel: 13,
+              animationDuration: 600,
+            });
           }}
           accessibilityLabel="Centre map on my location"
         >
@@ -524,6 +592,15 @@ export default function NearbyScreen() {
       )}
     </SafeAreaView>
   );
+}
+
+// Convert a latitudeDelta (degrees of latitude visible) into an approximate
+// Mapbox zoom level. Useful for porting react-native-maps style regions.
+function deltaToZoom(latDelta: number): number {
+  if (!latDelta || latDelta <= 0) return 12;
+  // Empirically: zoom ≈ log2(180 / latDelta) - 1
+  const z = Math.log2(180 / latDelta) - 1;
+  return Math.max(2, Math.min(18, z));
 }
 
 const styles = StyleSheet.create({
