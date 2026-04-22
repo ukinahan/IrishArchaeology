@@ -19,6 +19,16 @@ const BBOX_FETCH_DEBOUNCE_MS = 500;
 // Don't bother fetching when zoomed too far out (slow + low value).
 const MAX_BBOX_DELTA_DEG = 2.0;
 
+// All 26 counties of the Republic of Ireland—shown in the picker even before
+// their sites have been loaded.
+const ALL_IRISH_COUNTIES = [
+  'Carlow', 'Cavan', 'Clare', 'Cork', 'Donegal', 'Dublin', 'Galway',
+  'Kerry', 'Kildare', 'Kilkenny', 'Laois', 'Leitrim', 'Limerick',
+  'Longford', 'Louth', 'Mayo', 'Meath', 'Monaghan', 'Offaly',
+  'Roscommon', 'Sligo', 'Tipperary', 'Waterford', 'Westmeath',
+  'Wexford', 'Wicklow',
+];
+
 export default function NearbyScreen() {
   const router = useRouter();
   const { lat, lng, loading, error, refresh } = useLocation();
@@ -27,7 +37,13 @@ export default function NearbyScreen() {
           activeCountyFilter, setActiveCountyFilter, getSitesNear,
           loadSitesNear, loadSitesByCounty, loadSitesInBounds, initFromCache, allSites } = useSiteStore();
 
-  const AVAILABLE_COUNTIES = getAvailableCounties(allSites);
+  const AVAILABLE_COUNTIES = useMemo(() => {
+    // Merge full Irish county list with any extras discovered in loaded sites,
+    // dedupe and sort. Keep 'All' first.
+    const fromSites = getAvailableCounties(allSites).filter((c) => c !== 'All');
+    const set = new Set<string>([...ALL_IRISH_COUNTIES, ...fromSites]);
+    return ['All', ...Array.from(set).sort()];
+  }, [allSites]);
   const [countyPickerOpen, setCountyPickerOpen] = useState(false);
   const [countyLoading, setCountyLoading] = useState(false);
   const [mapReady, setMapReady] = useState(false);
@@ -75,8 +91,8 @@ export default function NearbyScreen() {
   }, [lat, lng, activeCountyFilter]);
 
   // If we entered the screen with a pre-selected county (from intro screen),
-  // load it then focus the map on it. Focus only fires once the map has
-  // mounted (mapReady) AND we have at least one site for the county.
+  // load it. The actual map focus is handled by the effect below which waits
+  // for both the map to be ready AND the county's sites to be in the store.
   useEffect(() => {
     if (didInitialCountyFocus.current) return;
     if (!activeCountyFilter) return;
@@ -91,26 +107,28 @@ export default function NearbyScreen() {
         await loadSitesByCounty(activeCountyFilter);
       }
       setCountyLoading(false);
-      // If map is already mounted, focus now; otherwise onMapReady will handle it
-      if (mapRef.current && mapReady) {
-        focusCounty(activeCountyFilter);
-        pendingCountyFocus.current = null;
-      }
     })();
-  }, [activeCountyFilter, loadSitesByCounty, focusCounty, mapReady]);
+  }, [activeCountyFilter, loadSitesByCounty]);
 
-  // When the map finishes mounting, drain any pending county focus request
+  // Drain pending county focus once BOTH the map is mounted AND we have sites.
+  // This handles either order of completion: map-ready-first or sites-first.
+  useEffect(() => {
+    const pending = pendingCountyFocus.current;
+    if (!pending || !mapReady) return;
+    const hasSites = allSites.some((s) => s.county === pending);
+    if (!hasSites) return;
+    // Tiny delay so the map can settle before animating
+    const t = setTimeout(() => {
+      focusCounty(pending);
+      pendingCountyFocus.current = null;
+    }, 150);
+    return () => clearTimeout(t);
+  }, [mapReady, allSites, focusCounty]);
+
+  // When the map finishes mounting, mark it ready so the focus effect can run.
   const handleMapReady = useCallback(() => {
     setMapReady(true);
-    const pending = pendingCountyFocus.current;
-    if (pending) {
-      // Slight delay so the map has time to settle before animating
-      setTimeout(() => {
-        focusCounty(pending);
-        pendingCountyFocus.current = null;
-      }, 100);
-    }
-  }, [focusCounty]);
+  }, []);
 
   const handleCountySelect = useCallback(
     async (county: string | null) => {
@@ -192,13 +210,25 @@ export default function NearbyScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Explorer</Text>
-        <Text style={styles.headerSub}>
-          {sites.length === allFilteredSites.length
-            ? `${sites.length} ${sites.length === 1 ? 'site' : 'sites'}`
-            : `Showing ${sites.length} of ${allFilteredSites.length} sites`}
-          {activeCountyFilter ? ` in Co. ${activeCountyFilter}` : ' nearby'}
-        </Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle}>Explorer</Text>
+            <Text style={styles.headerSub}>
+              {sites.length === allFilteredSites.length
+                ? `${sites.length} ${sites.length === 1 ? 'site' : 'sites'}`
+                : `Showing ${sites.length} of ${allFilteredSites.length} sites`}
+              {activeCountyFilter ? ` in Co. ${activeCountyFilter}` : ' nearby'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.homeBtn}
+            onPress={() => router.replace('/')}
+            accessibilityLabel="Back to start"
+            accessibilityRole="button"
+          >
+            <Ionicons name="home" size={18} color={COLORS.forestDark} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Period filter */}
@@ -363,6 +393,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 4,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  homeBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: RADII.full,
+    backgroundColor: COLORS.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.card,
   },
   headerTitle: { fontSize: FONTS.sizes.xxl, fontWeight: '800', color: COLORS.parchment },
   headerSub: { fontSize: FONTS.sizes.sm, color: COLORS.stoneLight },
