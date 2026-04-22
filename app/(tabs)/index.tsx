@@ -30,8 +30,10 @@ export default function NearbyScreen() {
   const AVAILABLE_COUNTIES = getAvailableCounties(allSites);
   const [countyPickerOpen, setCountyPickerOpen] = useState(false);
   const [countyLoading, setCountyLoading] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
   const bboxFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitialCountyFocus = useRef(false);
+  const pendingCountyFocus = useRef<string | null>(activeCountyFilter);
 
   // Helper: animate map to fit a county's site bounding box
   const focusCounty = useCallback((county: string) => {
@@ -73,24 +75,42 @@ export default function NearbyScreen() {
   }, [lat, lng, activeCountyFilter]);
 
   // If we entered the screen with a pre-selected county (from intro screen),
-  // load it and focus the map on it once.
+  // load it then focus the map on it. Focus only fires once the map has
+  // mounted (mapReady) AND we have at least one site for the county.
   useEffect(() => {
     if (didInitialCountyFocus.current) return;
     if (!activeCountyFilter) return;
     didInitialCountyFocus.current = true;
+    pendingCountyFocus.current = activeCountyFilter;
     (async () => {
       setCountyLoading(true);
-      // Only fetch if we don't already have sites for this county cached
       const existing = useSiteStore
         .getState()
         .allSites.some((s) => s.county === activeCountyFilter);
       if (!existing) {
         await loadSitesByCounty(activeCountyFilter);
       }
-      focusCounty(activeCountyFilter);
       setCountyLoading(false);
+      // If map is already mounted, focus now; otherwise onMapReady will handle it
+      if (mapRef.current && mapReady) {
+        focusCounty(activeCountyFilter);
+        pendingCountyFocus.current = null;
+      }
     })();
-  }, [activeCountyFilter, loadSitesByCounty, focusCounty]);
+  }, [activeCountyFilter, loadSitesByCounty, focusCounty, mapReady]);
+
+  // When the map finishes mounting, drain any pending county focus request
+  const handleMapReady = useCallback(() => {
+    setMapReady(true);
+    const pending = pendingCountyFocus.current;
+    if (pending) {
+      // Slight delay so the map has time to settle before animating
+      setTimeout(() => {
+        focusCounty(pending);
+        pendingCountyFocus.current = null;
+      }, 100);
+    }
+  }, [focusCounty]);
 
   const handleCountySelect = useCallback(
     async (county: string | null) => {
@@ -234,7 +254,7 @@ export default function NearbyScreen() {
 
       {/* Map or state */}
       <View style={styles.mapContainer}>
-        {loading && (
+        {loading && !activeCountyFilter && (
           <View style={styles.overlay}>
             <ActivityIndicator color={COLORS.gold} size="large" />
             <Text style={styles.overlayText}>Finding your location…</Text>
@@ -248,7 +268,7 @@ export default function NearbyScreen() {
           </View>
         )}
 
-        {error && !loading && (
+        {error && !loading && !activeCountyFilter && (
           <View style={styles.overlay}>
             <Ionicons name="location-outline" size={40} color={COLORS.stoneLight} />
             <Text style={styles.overlayTitle}>Location needed</Text>
@@ -259,20 +279,21 @@ export default function NearbyScreen() {
           </View>
         )}
 
-        {lat && lng && (
+        {(lat && lng) || activeCountyFilter ? (
           <MapView
             ref={mapRef}
             style={styles.map}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             initialRegion={{
-              latitude: lat,
-              longitude: lng,
-              latitudeDelta: 0.05,
-              longitudeDelta: 0.05,
+              latitude: lat ?? 53.4,
+              longitude: lng ?? -8.0,
+              latitudeDelta: activeCountyFilter && !lat ? 2.5 : 0.05,
+              longitudeDelta: activeCountyFilter && !lat ? 2.5 : 0.05,
             }}
-            showsUserLocation
+            showsUserLocation={!!(lat && lng)}
             showsMyLocationButton={false}
             mapType="hybrid"
+            onMapReady={handleMapReady}
             onRegionChangeComplete={handleRegionChangeComplete}
           >
             {/* Site markers */}
@@ -305,7 +326,7 @@ export default function NearbyScreen() {
               </Marker>
             ))}
           </MapView>
-        )}
+        ) : null}
       </View>
 
       {/* Location refresh FAB */}
