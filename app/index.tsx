@@ -1,11 +1,12 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Easing, TextInput, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { PulsingOrbs } from '@/components/PulsingOrbs';
-import { Period, PERIOD_LABELS, PERIOD_ICONS, PERIOD_COLORS } from '@/data/sites';
+import { Period, PERIOD_LABELS, PERIOD_ICONS, PERIOD_COLORS, ArchSite } from '@/data/sites';
 import { useSiteStore } from '@/store/useSiteStore';
+import { searchSites } from '@/services/siteService';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 
 const ALL_PERIODS: Period[] = [
@@ -30,7 +31,51 @@ export default function Index() {
   const [selectedCounty, setSelectedCounty] = useState<string | null>(null);
   const [countyOpen, setCountyOpen] = useState(false);
   const fadeIn = useRef(new Animated.Value(0)).current;
-  const { setActivePeriodFilter, setActiveCountyFilter, loadSitesByCounty } = useSiteStore();
+  const { setActivePeriodFilter, setActiveCountyFilter, loadSitesByCounty, addSites } = useSiteStore();
+
+  // ---------- Search ----------
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ArchSite[]>([]);
+  const [searching, setSearching] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastQueryRef = useRef('');
+
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    searchTimer.current = setTimeout(async () => {
+      lastQueryRef.current = q;
+      try {
+        const results = await searchSites(q, 30);
+        // Drop if user has typed something newer in the meantime
+        if (lastQueryRef.current !== q) return;
+        setSearchResults(results);
+      } catch {
+        if (lastQueryRef.current !== q) return;
+        setSearchResults([]);
+      } finally {
+        if (lastQueryRef.current === q) setSearching(false);
+      }
+    }, 350);
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
+  }, [searchQuery]);
+
+  const handleSelectResult = useCallback(
+    (site: ArchSite) => {
+      // Push the result into the store so the detail screen can find it.
+      addSites([site]);
+      router.push(`/site/${site.id}`);
+    },
+    [router, addSites],
+  );
 
   // Phase 1: Loading with pulsing orbs for 3 seconds
   useEffect(() => {
@@ -88,7 +133,57 @@ export default function Index() {
     <SafeAreaView style={styles.safe}>
       <Animated.View style={[styles.content, { opacity: fadeIn }]}>  
         <Text style={styles.selTitle}>What are you looking for?</Text>
-        <Text style={styles.selSub}>Choose a period and county, or skip to explore everything.</Text>
+        <Text style={styles.selSub}>Choose a period and county, or search for a site or town.</Text>
+
+        {/* Search */}
+        <View style={styles.searchWrap}>
+          <Ionicons name="search" size={18} color={COLORS.stoneLight} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by site or townland…"
+            placeholderTextColor={COLORS.stoneLight}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCorrect={false}
+            autoCapitalize="words"
+            returnKeyType="search"
+          />
+          {searching ? (
+            <ActivityIndicator size="small" color={COLORS.gold} />
+          ) : searchQuery.length > 0 ? (
+            <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={10}>
+              <Ionicons name="close-circle" size={18} color={COLORS.stoneLight} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {searchQuery.trim().length >= 2 && (
+          <View style={styles.searchResults}>
+            {searching && searchResults.length === 0 ? (
+              <Text style={styles.searchEmpty}>Searching…</Text>
+            ) : searchResults.length === 0 ? (
+              <Text style={styles.searchEmpty}>No matches found.</Text>
+            ) : (
+              <ScrollView style={styles.searchScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                {searchResults.map((s) => (
+                  <TouchableOpacity
+                    key={s.id}
+                    style={styles.searchItem}
+                    onPress={() => handleSelectResult(s)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.searchItemTitle} numberOfLines={1}>{s.name}</Text>
+                      <Text style={styles.searchItemSub} numberOfLines={1}>
+                        {s.county ? `Co. ${s.county}` : 'Ireland'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={COLORS.stoneLight} />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
 
         {/* Period grid */}
         <Text style={styles.sectionLabel}>Period</Text>
@@ -277,6 +372,57 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.sm,
     color: COLORS.stoneLight,
     textDecorationLine: 'underline',
+  },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.forestMid,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: COLORS.forestLight,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: FONTS.sizes.md,
+    color: COLORS.parchment,
+    paddingVertical: 0,
+  },
+  searchResults: {
+    backgroundColor: COLORS.forestMid,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: COLORS.forestLight,
+    maxHeight: 220,
+    marginBottom: 18,
+  },
+  searchScroll: { paddingVertical: 4 },
+  searchItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.forestLight,
+  },
+  searchItemTitle: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: '600',
+    color: COLORS.parchment,
+  },
+  searchItemSub: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.stoneLight,
+    marginTop: 2,
+  },
+  searchEmpty: {
+    padding: 14,
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.stoneLight,
+    textAlign: 'center',
   },
 });
 

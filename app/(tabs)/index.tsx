@@ -99,7 +99,8 @@ export default function NearbyScreen() {
   const cameraRef = useRef<Camera>(null);
   const { activePeriodFilter, setActivePeriodFilter,
           activeCountyFilter, setActiveCountyFilter, getSitesNear,
-          loadSitesNear, loadSitesByCounty, loadSitesInBounds, initFromCache, allSites } = useSiteStore();
+          loadSitesNear, loadSitesByCounty, loadSitesInBounds, initFromCache, allSites,
+          bboxLoading } = useSiteStore();
 
   const AVAILABLE_COUNTIES = useMemo(() => {
     // Merge full Irish county list with any extras discovered in loaded sites,
@@ -558,6 +559,14 @@ export default function NearbyScreen() {
           </View>
         )}
 
+        {/* Subtle indicator while we re-fetch sites for the new viewport */}
+        {bboxLoading && !countyLoading && !loading && (
+          <View style={styles.bboxBadge} pointerEvents="none">
+            <PulsingOrbs size={8} />
+            <Text style={styles.bboxBadgeText}>Loading sites…</Text>
+          </View>
+        )}
+
         {error && !loading && !activeCountyFilter && (
           <View style={styles.overlay}>
             <Ionicons name="location-outline" size={40} color={COLORS.stoneLight} />
@@ -667,6 +676,25 @@ const styles = StyleSheet.create({
     borderRadius: RADII.full,
   },
   retryText: { color: COLORS.forestDark, fontWeight: '700', fontSize: FONTS.sizes.md },
+  bboxBadge: {
+    position: 'absolute',
+    top: 12,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    zIndex: 20,
+    elevation: 20,
+  },
+  bboxBadgeText: {
+    color: COLORS.parchment,
+    fontSize: FONTS.sizes.xs,
+    fontWeight: '600',
+  },
   countyDropdownRow: {
     flexDirection: 'row',
     alignItems: 'center',

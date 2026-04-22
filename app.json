@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.irisharchaeology.app",
-      "buildNumber": "16",
+      "buildNumber": "17",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "We use your location to show archaeology sites near you.",
         "NSLocationAlwaysUsageDescription": "We use your location to show archaeology sites near you.",

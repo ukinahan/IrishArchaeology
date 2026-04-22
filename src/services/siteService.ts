@@ -191,3 +191,30 @@ export async function fetchSitesInBounds(
   const data: ArcGISResponse = await res.json();
   return (data.features ?? []).map(mapFeatureToSite);
 }
+
+/**
+ * Free-text search across townland and monument class. Used by the splash
+ * search box. Returns up to `limit` matches, ordered by townland.
+ */
+export async function searchSites(query: string, limit: number = 25): Promise<ArchSite[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  // Escape single quotes for ArcGIS WHERE.
+  const safe = q.replace(/'/g, "''").toUpperCase();
+  const where =
+    `(UPPER(TOWNLAND) LIKE '%${safe}%' OR UPPER(MONUMENT_CLASS) LIKE '%${safe}%')` +
+    ` AND MONUMENT_CLASS <> 'Redundant record'`;
+  const params = new URLSearchParams({
+    where,
+    outFields: OUT_FIELDS,
+    outSR: '4326',
+    returnGeometry: 'false',
+    resultRecordCount: String(limit),
+    orderByFields: 'TOWNLAND ASC',
+    f: 'json',
+  });
+  const res = await fetch(`${BASE_URL}?${params.toString()}`);
+  if (!res.ok) throw new Error(`NMS API error: ${res.status}`);
+  const data: ArcGISResponse = await res.json();
+  return (data.features ?? []).map(mapFeatureToSite);
+}

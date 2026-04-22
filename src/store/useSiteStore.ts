@@ -19,6 +19,7 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 interface SiteStore {
   allSites: ArchSite[];
   isLoading: boolean;
+  bboxLoading: boolean;
   loadError: string | null;
   savedSiteIds: Set<string>;
   activePeriodFilter: Period | null;
@@ -37,6 +38,7 @@ interface SiteStore {
   setActiveCountyFilter: (county: string | null) => void;
   getSitesNear: (lat: number, lng: number) => ArchSite[];
   getSavedSites: () => ArchSite[];
+  addSites: (sites: ArchSite[]) => void;
 }
 
 /** Merge new sites into existing array, deduplicating by id. */
@@ -59,6 +61,7 @@ export function getAvailableCounties(sites: ArchSite[]): string[] {
 export const useSiteStore = create<SiteStore>((set, get) => ({
   allSites: [],
   isLoading: false,
+  bboxLoading: false,
   loadError: null,
   savedSiteIds: new Set(),
   activePeriodFilter: null,
@@ -127,16 +130,21 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
   setActiveCountyFilter: (county) => set({ activeCountyFilter: county }),
 
   loadSitesInBounds: async (minLat, minLng, maxLat, maxLng) => {
+    set({ bboxLoading: true });
     try {
       const sites = await fetchSitesInBounds(minLat, minLng, maxLat, maxLng);
-      if (sites.length === 0) return;
+      if (sites.length === 0) {
+        set({ bboxLoading: false });
+        return;
+      }
       set((s) => {
         const merged = mergeSites(s.allSites, sites);
         cacheSites(merged).catch(() => {});
-        return { allSites: merged };
+        return { allSites: merged, bboxLoading: false };
       });
     } catch {
       // Silent fail — background fetch, don't surface errors
+      set({ bboxLoading: false });
     }
   },
 
@@ -152,5 +160,10 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
   getSavedSites: () => {
     const { allSites, savedSiteIds } = get();
     return allSites.filter((s) => savedSiteIds.has(s.id));
+  },
+
+  addSites: (sites) => {
+    if (!sites || sites.length === 0) return;
+    set((s) => ({ allSites: mergeSites(s.allSites, sites) }));
   },
 }));
