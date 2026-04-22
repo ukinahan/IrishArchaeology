@@ -243,6 +243,10 @@ export default function Index() {
           <TouchableOpacity onPress={() => { setActivePeriodFilter(null); setActiveCountyFilter(null); router.replace('/(tabs)'); }}>
             <Text style={styles.skipText}>Skip — show me everything</Text>
           </TouchableOpacity>
+
+          <Text style={styles.attribution}>
+            Site data © Sites and Monuments Record, National Monuments Service of Ireland (CC BY 4.0).
+          </Text>
         </View>
         </ScrollView>
       </Animated.View>
@@ -380,6 +384,14 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.sm,
     color: COLORS.stoneLight,
     textDecorationLine: 'underline',
+  },
+  attribution: {
+    fontSize: 11,
+    color: COLORS.stoneLight,
+    textAlign: 'center',
+    marginTop: 14,
+    paddingHorizontal: 12,
+    opacity: 0.7,
   },
   searchWrap: {
     flexDirection: 'row',
