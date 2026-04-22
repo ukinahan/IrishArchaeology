@@ -160,3 +160,34 @@ export async function fetchSitesByCounty(county: string): Promise<ArchSite[]> {
 
   return firstBatch.concat(...pageResults);
 }
+
+/**
+ * Fetch sites within a geographic bounding box (envelope).
+ * Used to dynamically load sites as the user pans/zooms the map.
+ * Capped at PAGE results — caller should restrict to reasonably small bboxes.
+ */
+export async function fetchSitesInBounds(
+  minLat: number,
+  minLng: number,
+  maxLat: number,
+  maxLng: number,
+  maxResults: number = 1000,
+): Promise<ArchSite[]> {
+  const params = new URLSearchParams({
+    where: "MONUMENT_CLASS <> 'Redundant record'",
+    geometry: `${minLng},${minLat},${maxLng},${maxLat}`,
+    geometryType: 'esriGeometryEnvelope',
+    inSR: '4326',
+    spatialRel: 'esriSpatialRelIntersects',
+    outFields: OUT_FIELDS,
+    outSR: '4326',
+    returnGeometry: 'false',
+    resultRecordCount: String(maxResults),
+    f: 'json',
+  });
+
+  const res = await fetch(`${BASE_URL}?${params.toString()}`);
+  if (!res.ok) throw new Error(`NMS API error: ${res.status}`);
+  const data: ArcGISResponse = await res.json();
+  return (data.features ?? []).map(mapFeatureToSite);
+}

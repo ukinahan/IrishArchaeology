@@ -1,8 +1,8 @@
-// app/(tabs)/index.tsx  —  Nearby Map screen
+// app/(tabs)/index.tsx  —  Explorer Map screen
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Modal, FlatList, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocation } from '@/hooks/useLocation';
@@ -12,37 +12,85 @@ import { PulsingOrbs } from '@/components/PulsingOrbs';
 import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 
-const RADIUS_OPTIONS: (number | null)[] = [null, 0.25, 0.5, 1, 5, 10, 50];
-
-// Cap markers rendered on the map for performance. Counties can have thousands of
-// sites; rendering all of them as custom views causes severe lag.
+// Cap markers rendered on the map for performance.
 const MAX_MARKERS = 250;
-
-function radiusLabel(r: number | null): string {
-  if (r === null) return 'All';
-  if (r < 1) return `${r * 1000}m`;
-  return `${r}km`;
-}
+// Debounce dynamic bbox fetches as user pans/zooms.
+const BBOX_FETCH_DEBOUNCE_MS = 500;
+// Don't bother fetching when zoomed too far out (slow + low value).
+const MAX_BBOX_DELTA_DEG = 2.0;
 
 export default function NearbyScreen() {
   const router = useRouter();
   const { lat, lng, loading, error, refresh } = useLocation();
   const mapRef = useRef<MapView>(null);
-  const { radiusKm, setRadiusKm, activePeriodFilter, setActivePeriodFilter,
+  const { activePeriodFilter, setActivePeriodFilter,
           activeCountyFilter, setActiveCountyFilter, getSitesNear,
-          loadSitesNear, loadSitesByCounty, initFromCache, isLoading: sitesLoading, allSites } = useSiteStore();
+          loadSitesNear, loadSitesByCounty, loadSitesInBounds, initFromCache, allSites } = useSiteStore();
 
   const AVAILABLE_COUNTIES = getAvailableCounties(allSites);
   const [countyPickerOpen, setCountyPickerOpen] = useState(false);
   const [countyLoading, setCountyLoading] = useState(false);
+  const bboxFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didInitialCountyFocus = useRef(false);
 
-  // Load cached sites on mount, then fetch from API when location is available
-  useEffect(() => { initFromCache(); }, []);
-  useEffect(() => {
-    if (lat && lng) {
-      loadSitesNear(lat, lng, radiusKm ?? 50);
+  // Helper: animate map to fit a county's site bounding box
+  const focusCounty = useCallback((county: string) => {
+    const countySites = useSiteStore
+      .getState()
+      .allSites.filter((s) => s.county === county);
+    if (countySites.length === 0 || !mapRef.current) return;
+    let minLat = countySites[0].lat;
+    let maxLat = countySites[0].lat;
+    let minLng = countySites[0].lng;
+    let maxLng = countySites[0].lng;
+    for (const s of countySites) {
+      if (s.lat < minLat) minLat = s.lat;
+      if (s.lat > maxLat) maxLat = s.lat;
+      if (s.lng < minLng) minLng = s.lng;
+      if (s.lng > maxLng) maxLng = s.lng;
     }
-  }, [lat, lng]);
+    const latPad = Math.max((maxLat - minLat) * 0.15, 0.02);
+    const lngPad = Math.max((maxLng - minLng) * 0.15, 0.02);
+    mapRef.current.animateToRegion(
+      {
+        latitude: (minLat + maxLat) / 2,
+        longitude: (minLng + maxLng) / 2,
+        latitudeDelta: maxLat - minLat + latPad,
+        longitudeDelta: maxLng - minLng + lngPad,
+      },
+      700,
+    );
+  }, []);
+
+  // Load cached sites on mount
+  useEffect(() => { initFromCache(); }, []);
+
+  // When location available with NO county selected, fetch nearby sites
+  useEffect(() => {
+    if (lat && lng && !activeCountyFilter) {
+      loadSitesNear(lat, lng, 10);
+    }
+  }, [lat, lng, activeCountyFilter]);
+
+  // If we entered the screen with a pre-selected county (from intro screen),
+  // load it and focus the map on it once.
+  useEffect(() => {
+    if (didInitialCountyFocus.current) return;
+    if (!activeCountyFilter) return;
+    didInitialCountyFocus.current = true;
+    (async () => {
+      setCountyLoading(true);
+      // Only fetch if we don't already have sites for this county cached
+      const existing = useSiteStore
+        .getState()
+        .allSites.some((s) => s.county === activeCountyFilter);
+      if (!existing) {
+        await loadSitesByCounty(activeCountyFilter);
+      }
+      focusCounty(activeCountyFilter);
+      setCountyLoading(false);
+    })();
+  }, [activeCountyFilter, loadSitesByCounty, focusCounty]);
 
   const handleCountySelect = useCallback(
     async (county: string | null) => {
@@ -52,51 +100,58 @@ export default function NearbyScreen() {
       if (county) {
         setCountyLoading(true);
         await loadSitesByCounty(county);
-        // Auto-focus map onto the newly loaded county
-        const countySites = useSiteStore
-          .getState()
-          .allSites.filter((s) => s.county === county);
-        if (countySites.length > 0 && mapRef.current) {
-          let minLat = countySites[0].lat;
-          let maxLat = countySites[0].lat;
-          let minLng = countySites[0].lng;
-          let maxLng = countySites[0].lng;
-          for (const s of countySites) {
-            if (s.lat < minLat) minLat = s.lat;
-            if (s.lat > maxLat) maxLat = s.lat;
-            if (s.lng < minLng) minLng = s.lng;
-            if (s.lng > maxLng) maxLng = s.lng;
-          }
-          const latPad = Math.max((maxLat - minLat) * 0.15, 0.02);
-          const lngPad = Math.max((maxLng - minLng) * 0.15, 0.02);
-          mapRef.current.animateToRegion(
-            {
-              latitude: (minLat + maxLat) / 2,
-              longitude: (minLng + maxLng) / 2,
-              latitudeDelta: maxLat - minLat + latPad,
-              longitudeDelta: maxLng - minLng + lngPad,
-            },
-            700,
-          );
-        }
+        focusCounty(county);
         setCountyLoading(false);
       } else {
         setCountyLoading(false);
+        // Re-centre on user when clearing county filter
+        if (lat && lng && mapRef.current) {
+          mapRef.current.animateToRegion(
+            { latitude: lat, longitude: lng, latitudeDelta: 0.05, longitudeDelta: 0.05 },
+            500,
+          );
+        }
       }
     },
-    [setActiveCountyFilter, loadSitesByCounty, activeCountyFilter],
+    [setActiveCountyFilter, loadSitesByCounty, activeCountyFilter, focusCounty, lat, lng],
   );
+
+  // Dynamically load additional sites when the user pans/zooms the map
+  const handleRegionChangeComplete = useCallback(
+    (region: Region) => {
+      // Skip very wide views (whole country)
+      if (region.latitudeDelta > MAX_BBOX_DELTA_DEG || region.longitudeDelta > MAX_BBOX_DELTA_DEG) {
+        return;
+      }
+      if (bboxFetchTimer.current) clearTimeout(bboxFetchTimer.current);
+      bboxFetchTimer.current = setTimeout(() => {
+        const minLat = region.latitude - region.latitudeDelta / 2;
+        const maxLat = region.latitude + region.latitudeDelta / 2;
+        const minLng = region.longitude - region.longitudeDelta / 2;
+        const maxLng = region.longitude + region.longitudeDelta / 2;
+        loadSitesInBounds(minLat, minLng, maxLat, maxLng);
+      }, BBOX_FETCH_DEBOUNCE_MS);
+    },
+    [loadSitesInBounds],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (bboxFetchTimer.current) clearTimeout(bboxFetchTimer.current);
+    };
+  }, []);
 
   // Memoize filtered list and cap displayed markers for performance
   const allFilteredSites = useMemo(
-    () => (lat && lng ? getSitesNear(lat, lng) : []),
-    [lat, lng, allSites, radiusKm, activePeriodFilter, activeCountyFilter, getSitesNear],
+    () => (lat && lng ? getSitesNear(lat, lng) : getSitesNear(53.4, -8.0)),
+    [lat, lng, allSites, activePeriodFilter, activeCountyFilter, getSitesNear],
   );
 
   const sites = useMemo(() => {
     if (allFilteredSites.length <= MAX_MARKERS) return allFilteredSites;
-    if (!lat || !lng) return allFilteredSites.slice(0, MAX_MARKERS);
-    // Show the MAX_MARKERS sites closest to the user
+    // When a county is selected, show first MAX_MARKERS (already focused on bbox)
+    // Otherwise, show those closest to the user
+    if (activeCountyFilter || !lat || !lng) return allFilteredSites.slice(0, MAX_MARKERS);
     return [...allFilteredSites]
       .sort((a, b) => {
         const da = (a.lat - lat) ** 2 + (a.lng - lng) ** 2;
@@ -104,7 +159,7 @@ export default function NearbyScreen() {
         return da - db;
       })
       .slice(0, MAX_MARKERS);
-  }, [allFilteredSites, lat, lng]);
+  }, [allFilteredSites, lat, lng, activeCountyFilter]);
 
   const handleSitePress = useCallback(
     (siteId: string) => {
@@ -117,16 +172,12 @@ export default function NearbyScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Nearby</Text>
+        <Text style={styles.headerTitle}>Explorer</Text>
         <Text style={styles.headerSub}>
           {sites.length === allFilteredSites.length
             ? `${sites.length} ${sites.length === 1 ? 'site' : 'sites'}`
             : `Showing ${sites.length} of ${allFilteredSites.length} sites`}
-          {activeCountyFilter
-            ? ` in Co. ${activeCountyFilter}`
-            : radiusKm === null
-            ? ' across all counties'
-            : ` within ${radiusKm < 1 ? radiusKm * 1000 + 'm' : radiusKm + 'km'}`}
+          {activeCountyFilter ? ` in Co. ${activeCountyFilter}` : ' nearby'}
         </Text>
       </View>
 
@@ -181,23 +232,6 @@ export default function NearbyScreen() {
         </Pressable>
       </Modal>
 
-      {/* Radius selector */}
-      <View style={styles.radiusRow}>
-        <Text style={styles.radiusLabel}>Radius:</Text>
-        {RADIUS_OPTIONS.map((r) => (
-          <TouchableOpacity
-            key={String(r)}
-            style={[styles.radiusChip, radiusKm === r && styles.radiusChipActive]}
-            onPress={() => setRadiusKm(r)}
-            accessibilityLabel={`Set radius to ${radiusLabel(r)}`}
-          >
-            <Text style={[styles.radiusChipText, radiusKm === r && styles.radiusChipTextActive]}>
-              {radiusLabel(r)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
       {/* Map or state */}
       <View style={styles.mapContainer}>
         {loading && (
@@ -233,24 +267,14 @@ export default function NearbyScreen() {
             initialRegion={{
               latitude: lat,
               longitude: lng,
-              latitudeDelta: (radiusKm ?? 1) * 0.02,
-              longitudeDelta: (radiusKm ?? 1) * 0.02,
+              latitudeDelta: 0.05,
+              longitudeDelta: 0.05,
             }}
             showsUserLocation
             showsMyLocationButton={false}
-            mapType="satellite"
+            mapType="hybrid"
+            onRegionChangeComplete={handleRegionChangeComplete}
           >
-            {/* Radius circle — hidden when All */}
-            {radiusKm !== null && lat && lng && (
-              <Circle
-                center={{ latitude: lat, longitude: lng }}
-                radius={radiusKm * 1000}
-                strokeColor={COLORS.gold + '66'}
-                fillColor={COLORS.gold + '11'}
-                strokeWidth={1}
-              />
-            )}
-
             {/* Site markers */}
             {sites.map((site) => (
               <Marker
@@ -297,8 +321,8 @@ export default function NearbyScreen() {
               {
                 latitude: loc.coords.latitude,
                 longitude: loc.coords.longitude,
-                latitudeDelta: (radiusKm ?? 1) * 0.02,
-                longitudeDelta: (radiusKm ?? 1) * 0.02,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
               },
               600,
             );

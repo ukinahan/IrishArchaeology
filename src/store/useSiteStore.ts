@@ -1,7 +1,7 @@
 // src/store/useSiteStore.ts
 import { create } from 'zustand';
 import { ArchSite, Period } from '../data/sites';
-import { fetchSitesNear as apiFetchNear, fetchSitesByCounty } from '../services/siteService';
+import { fetchSitesNear as apiFetchNear, fetchSitesByCounty, fetchSitesInBounds } from '../services/siteService';
 import { getCachedSites, cacheSites } from '../utils/offlineCache';
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -28,6 +28,7 @@ interface SiteStore {
   // Actions
   loadSitesNear: (lat: number, lng: number, radiusKm?: number) => Promise<void>;
   loadSitesByCounty: (county: string) => Promise<void>;
+  loadSitesInBounds: (minLat: number, minLng: number, maxLat: number, maxLng: number) => Promise<void>;
   initFromCache: () => Promise<void>;
   toggleSaved: (siteId: string) => void;
   isSaved: (siteId: string) => boolean;
@@ -125,14 +126,26 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
 
   setActiveCountyFilter: (county) => set({ activeCountyFilter: county }),
 
+  loadSitesInBounds: async (minLat, minLng, maxLat, maxLng) => {
+    try {
+      const sites = await fetchSitesInBounds(minLat, minLng, maxLat, maxLng);
+      if (sites.length === 0) return;
+      set((s) => {
+        const merged = mergeSites(s.allSites, sites);
+        cacheSites(merged).catch(() => {});
+        return { allSites: merged };
+      });
+    } catch {
+      // Silent fail — background fetch, don't surface errors
+    }
+  },
+
   getSitesNear: (lat, lng) => {
-    const { allSites, radiusKm, activePeriodFilter, activeCountyFilter } = get();
+    const { allSites, activePeriodFilter, activeCountyFilter } = get();
     return allSites.filter((site) => {
-      const inRadius = radiusKm === null || activeCountyFilter !== null ||
-        haversineKm(lat, lng, site.lat, site.lng) <= radiusKm;
       const inPeriod = activePeriodFilter === null || site.period === activePeriodFilter;
       const inCounty = activeCountyFilter === null || site.county === activeCountyFilter;
-      return inRadius && inPeriod && inCounty;
+      return inPeriod && inCounty;
     });
   },
 
