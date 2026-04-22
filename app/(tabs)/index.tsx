@@ -1,7 +1,7 @@
 // app/(tabs)/index.tsx  —  Nearby Map screen
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, ScrollView, Modal, FlatList, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Modal, FlatList, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -13,6 +13,10 @@ import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 
 const RADIUS_OPTIONS: (number | null)[] = [null, 0.25, 0.5, 1, 5, 10, 50];
+
+// Cap markers rendered on the map for performance. Counties can have thousands of
+// sites; rendering all of them as custom views causes severe lag.
+const MAX_MARKERS = 250;
 
 function radiusLabel(r: number | null): string {
   if (r === null) return 'All';
@@ -48,6 +52,33 @@ export default function NearbyScreen() {
       if (county) {
         setCountyLoading(true);
         await loadSitesByCounty(county);
+        // Auto-focus map onto the newly loaded county
+        const countySites = useSiteStore
+          .getState()
+          .allSites.filter((s) => s.county === county);
+        if (countySites.length > 0 && mapRef.current) {
+          let minLat = countySites[0].lat;
+          let maxLat = countySites[0].lat;
+          let minLng = countySites[0].lng;
+          let maxLng = countySites[0].lng;
+          for (const s of countySites) {
+            if (s.lat < minLat) minLat = s.lat;
+            if (s.lat > maxLat) maxLat = s.lat;
+            if (s.lng < minLng) minLng = s.lng;
+            if (s.lng > maxLng) maxLng = s.lng;
+          }
+          const latPad = Math.max((maxLat - minLat) * 0.15, 0.02);
+          const lngPad = Math.max((maxLng - minLng) * 0.15, 0.02);
+          mapRef.current.animateToRegion(
+            {
+              latitude: (minLat + maxLat) / 2,
+              longitude: (minLng + maxLng) / 2,
+              latitudeDelta: maxLat - minLat + latPad,
+              longitudeDelta: maxLng - minLng + lngPad,
+            },
+            700,
+          );
+        }
         setCountyLoading(false);
       } else {
         setCountyLoading(false);
@@ -56,7 +87,24 @@ export default function NearbyScreen() {
     [setActiveCountyFilter, loadSitesByCounty, activeCountyFilter],
   );
 
-  const sites = lat && lng ? getSitesNear(lat, lng) : [];
+  // Memoize filtered list and cap displayed markers for performance
+  const allFilteredSites = useMemo(
+    () => (lat && lng ? getSitesNear(lat, lng) : []),
+    [lat, lng, allSites, radiusKm, activePeriodFilter, activeCountyFilter, getSitesNear],
+  );
+
+  const sites = useMemo(() => {
+    if (allFilteredSites.length <= MAX_MARKERS) return allFilteredSites;
+    if (!lat || !lng) return allFilteredSites.slice(0, MAX_MARKERS);
+    // Show the MAX_MARKERS sites closest to the user
+    return [...allFilteredSites]
+      .sort((a, b) => {
+        const da = (a.lat - lat) ** 2 + (a.lng - lng) ** 2;
+        const db = (b.lat - lat) ** 2 + (b.lng - lng) ** 2;
+        return da - db;
+      })
+      .slice(0, MAX_MARKERS);
+  }, [allFilteredSites, lat, lng]);
 
   const handleSitePress = useCallback(
     (siteId: string) => {
@@ -71,7 +119,9 @@ export default function NearbyScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Nearby</Text>
         <Text style={styles.headerSub}>
-          {sites.length} {sites.length === 1 ? 'site' : 'sites'}
+          {sites.length === allFilteredSites.length
+            ? `${sites.length} ${sites.length === 1 ? 'site' : 'sites'}`
+            : `Showing ${sites.length} of ${allFilteredSites.length} sites`}
           {activeCountyFilter
             ? ` in Co. ${activeCountyFilter}`
             : radiusKm === null

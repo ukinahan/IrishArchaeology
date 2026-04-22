@@ -102,16 +102,16 @@ export async function fetchSitesNear(
 
 /**
  * Fetch sites filtered by county name.
+ * Uses parallel paged requests after the first page to dramatically speed up
+ * counties with many thousands of records.
  */
 export async function fetchSitesByCounty(county: string): Promise<ArchSite[]> {
-  const allSites: ArchSite[] = [];
-  let offset = 0;
-  const PAGE = 2000;
+  const PAGE = 4000;
+  const where = `COUNTY = '${county.toUpperCase()}' AND MONUMENT_CLASS <> 'Redundant record'`;
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
+  const buildUrl = (offset: number) => {
     const params = new URLSearchParams({
-      where: `COUNTY = '${county.toUpperCase()}' AND MONUMENT_CLASS <> 'Redundant record'`,
+      where,
       outFields: OUT_FIELDS,
       outSR: '4326',
       returnGeometry: 'false',
@@ -119,17 +119,44 @@ export async function fetchSitesByCounty(county: string): Promise<ArchSite[]> {
       resultRecordCount: String(PAGE),
       f: 'json',
     });
+    return `${BASE_URL}?${params.toString()}`;
+  };
 
-    const res = await fetch(`${BASE_URL}?${params.toString()}`);
-    if (!res.ok) throw new Error(`NMS API error: ${res.status}`);
+  // First request: also ask for the total count so we can parallelise the rest
+  const countParams = new URLSearchParams({
+    where,
+    returnCountOnly: 'true',
+    f: 'json',
+  });
 
-    const data: ArcGISResponse = await res.json();
-    const batch = (data.features ?? []).map(mapFeatureToSite);
-    allSites.push(...batch);
+  const [firstRes, countRes] = await Promise.all([
+    fetch(buildUrl(0)),
+    fetch(`${BASE_URL}?${countParams.toString()}`),
+  ]);
+  if (!firstRes.ok) throw new Error(`NMS API error: ${firstRes.status}`);
+  const firstData: ArcGISResponse = await firstRes.json();
+  const firstBatch = (firstData.features ?? []).map(mapFeatureToSite);
 
-    if (!data.exceededTransferLimit || batch.length < PAGE) break;
-    offset += PAGE;
+  let total = firstBatch.length;
+  if (countRes.ok) {
+    const countData = (await countRes.json()) as { count?: number };
+    if (typeof countData.count === 'number') total = countData.count;
   }
 
-  return allSites;
+  if (total <= PAGE) return firstBatch;
+
+  // Parallel fetch remaining pages
+  const offsets: number[] = [];
+  for (let off = PAGE; off < total; off += PAGE) offsets.push(off);
+
+  const pageResults = await Promise.all(
+    offsets.map(async (off) => {
+      const r = await fetch(buildUrl(off));
+      if (!r.ok) throw new Error(`NMS API error: ${r.status}`);
+      const d: ArcGISResponse = await r.json();
+      return (d.features ?? []).map(mapFeatureToSite);
+    }),
+  );
+
+  return firstBatch.concat(...pageResults);
 }

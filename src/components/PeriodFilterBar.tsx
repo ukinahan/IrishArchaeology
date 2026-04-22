@@ -1,5 +1,15 @@
 // src/components/PeriodFilterBar.tsx
-import { ScrollView, TouchableOpacity, Text, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import {
+  TouchableOpacity,
+  Text,
+  StyleSheet,
+  View,
+  Modal,
+  Pressable,
+  FlatList,
+} from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Period, PERIOD_ICONS, PERIOD_LABELS } from '../data/sites';
 import { COLORS, FONTS, RADII } from '../utils/theme';
 
@@ -13,66 +23,144 @@ const PERIODS: Period[] = [
   'post_medieval',
 ];
 
+type Item = { key: Period | 'all'; label: string; icon?: string };
+
+const ITEMS: Item[] = [
+  { key: 'all', label: 'All Periods' },
+  ...PERIODS.map<Item>((p) => ({ key: p, label: PERIOD_LABELS[p], icon: PERIOD_ICONS[p] })),
+];
+
 interface Props {
   active: Period | null;
   onChange: (period: Period | null) => void;
 }
 
 export function PeriodFilterBar({ active, onChange }: Props) {
+  const [open, setOpen] = useState(false);
+
+  const activeLabel = active === null ? 'All Periods' : PERIOD_LABELS[active];
+  const activeIcon = active === null ? null : PERIOD_ICONS[active];
+
+  const handleSelect = (key: Period | 'all') => {
+    setOpen(false);
+    onChange(key === 'all' ? null : key);
+  };
+
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.row}
-      style={styles.scroll}
-    >
+    <View style={styles.row}>
+      <Text style={styles.label}>Period:</Text>
       <TouchableOpacity
-        style={[styles.chip, active === null && styles.chipActive]}
-        onPress={() => onChange(null)}
-        accessibilityLabel="Show all periods"
+        style={styles.dropdown}
+        onPress={() => setOpen(true)}
+        accessibilityLabel="Select period"
+        accessibilityRole="button"
       >
-        <Text style={[styles.chipText, active === null && styles.chipTextActive]}>All</Text>
+        <View style={styles.dropdownInner}>
+          {activeIcon && <Text style={styles.icon}>{activeIcon}</Text>}
+          <Text style={styles.dropdownText}>{activeLabel}</Text>
+        </View>
+        <Ionicons name="chevron-down" size={16} color={COLORS.stoneLight} />
       </TouchableOpacity>
-      {PERIODS.map((p) => (
-        <TouchableOpacity
-          key={p}
-          style={[styles.chip, active === p && styles.chipActive]}
-          onPress={() => onChange(active === p ? null : p)}
-          accessibilityLabel={`Filter by ${PERIOD_LABELS[p]}`}
-        >
-          <Text style={styles.icon}>{PERIOD_ICONS[p]}</Text>
-          <Text style={[styles.chipText, active === p && styles.chipTextActive]}>
-            {PERIOD_LABELS[p]}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </ScrollView>
+
+      <Modal visible={open} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setOpen(false)}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Period</Text>
+              <TouchableOpacity onPress={() => setOpen(false)}>
+                <Ionicons name="close" size={24} color={COLORS.parchment} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={ITEMS}
+              keyExtractor={(it) => it.key}
+              renderItem={({ item }) => {
+                const isActive =
+                  item.key === 'all' ? active === null : active === item.key;
+                return (
+                  <TouchableOpacity
+                    style={[styles.modalItem, isActive && styles.modalItemActive]}
+                    onPress={() => handleSelect(item.key)}
+                  >
+                    <View style={styles.modalItemLeft}>
+                      {item.icon && <Text style={styles.icon}>{item.icon}</Text>}
+                      <Text
+                        style={[styles.modalItemText, isActive && styles.modalItemTextActive]}
+                      >
+                        {item.label}
+                      </Text>
+                    </View>
+                    {isActive && (
+                      <Ionicons name="checkmark" size={18} color={COLORS.forestDark} />
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { flexGrow: 0 },
-  row: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  chip: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: RADII.full,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  label: { fontSize: FONTS.sizes.xs, color: COLORS.stoneLight, fontWeight: '600' },
+  dropdown: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: COLORS.forestMid,
     borderWidth: 1,
     borderColor: COLORS.forestLight,
+    borderRadius: RADII.sm,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
-  chipActive: {
-    backgroundColor: COLORS.gold,
-    borderColor: COLORS.goldLight,
-  },
+  dropdownInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dropdownText: { fontSize: FONTS.sizes.sm, color: COLORS.parchment, fontWeight: '600' },
   icon: { fontSize: 14 },
-  chipText: {
-    fontSize: FONTS.sizes.xs,
-    fontWeight: '600',
-    color: COLORS.stoneLight,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
   },
-  chipTextActive: { color: COLORS.forestDark },
+  modalContent: {
+    backgroundColor: COLORS.forestDark,
+    borderTopLeftRadius: RADII.lg,
+    borderTopRightRadius: RADII.lg,
+    maxHeight: '60%',
+    paddingBottom: 32,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.forestLight,
+  },
+  modalTitle: { fontSize: FONTS.sizes.lg, fontWeight: '700', color: COLORS.parchment },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.forestLight,
+  },
+  modalItemActive: { backgroundColor: COLORS.gold },
+  modalItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  modalItemText: { fontSize: FONTS.sizes.md, color: COLORS.parchment },
+  modalItemTextActive: { color: COLORS.forestDark, fontWeight: '700' },
 });
