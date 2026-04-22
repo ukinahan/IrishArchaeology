@@ -213,6 +213,42 @@ export default function NearbyScreen() {
     };
   }, []);
 
+  // Compute the map's initial region. If a county is preselected and we
+  // already have its sites loaded, open the map directly on that county.
+  // Otherwise default to the user's location, or a wide Ireland view.
+  const initialRegion = useMemo(() => {
+    if (activeCountyFilter) {
+      const countySites = allSites.filter((s) => s.county === activeCountyFilter);
+      if (countySites.length > 0) {
+        let minLat = countySites[0].lat;
+        let maxLat = countySites[0].lat;
+        let minLng = countySites[0].lng;
+        let maxLng = countySites[0].lng;
+        for (const s of countySites) {
+          if (s.lat < minLat) minLat = s.lat;
+          if (s.lat > maxLat) maxLat = s.lat;
+          if (s.lng < minLng) minLng = s.lng;
+          if (s.lng > maxLng) maxLng = s.lng;
+        }
+        const latPad = Math.max((maxLat - minLat) * 0.15, 0.02);
+        const lngPad = Math.max((maxLng - minLng) * 0.15, 0.02);
+        return {
+          latitude: (minLat + maxLat) / 2,
+          longitude: (minLng + maxLng) / 2,
+          latitudeDelta: maxLat - minLat + latPad,
+          longitudeDelta: maxLng - minLng + lngPad,
+        };
+      }
+    }
+    if (lat && lng) {
+      return { latitude: lat, longitude: lng, latitudeDelta: 0.05, longitudeDelta: 0.05 };
+    }
+    return { latitude: 53.4, longitude: -8.0, latitudeDelta: 2.5, longitudeDelta: 2.5 };
+    // We intentionally only recompute when the county filter changes or the
+    // first time sites load. initialRegion only applies on map mount anyway.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCountyFilter, allSites.length === 0]);
+
   // Memoize filtered list and cap displayed markers for performance
   const allFilteredSites = useMemo(
     () => (lat && lng ? getSitesNear(lat, lng) : getSitesNear(53.4, -8.0)),
@@ -256,7 +292,11 @@ export default function NearbyScreen() {
           </View>
           <TouchableOpacity
             style={styles.homeBtn}
-            onPress={() => router.replace('/')}
+            onPress={() => {
+              setActiveCountyFilter(null);
+              setActivePeriodFilter(null);
+              router.replace('/');
+            }}
             accessibilityLabel="Back to start"
             accessibilityRole="button"
           >
@@ -318,42 +358,21 @@ export default function NearbyScreen() {
 
       {/* Map or state */}
       <View style={styles.mapContainer}>
-        {loading && !activeCountyFilter && (
-          <View style={styles.overlay}>
-            <ActivityIndicator color={COLORS.gold} size="large" />
-            <Text style={styles.overlayText}>Finding your location…</Text>
-          </View>
-        )}
-
-        {countyLoading && (
-          <View style={styles.overlay}>
-            <PulsingOrbs size={20} />
-            <Text style={[styles.overlayText, { marginTop: 16 }]}>Loading county sites…</Text>
-          </View>
-        )}
-
-        {error && !loading && !activeCountyFilter && (
-          <View style={styles.overlay}>
-            <Ionicons name="location-outline" size={40} color={COLORS.stoneLight} />
-            <Text style={styles.overlayTitle}>Location needed</Text>
-            <Text style={styles.overlayText}>{error}</Text>
-            <TouchableOpacity style={styles.retryBtn} onPress={refresh}>
-              <Text style={styles.retryText}>Try again</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
         {(lat && lng) || activeCountyFilter ? (
           <MapView
+            // Re-mount once county sites arrive so initialRegion picks up the
+            // proper bbox. Otherwise re-mount when location resolves.
+            key={`map-${activeCountyFilter ?? 'none'}-${
+              activeCountyFilter && allSites.some((s) => s.county === activeCountyFilter)
+                ? 'sites'
+                : lat && lng
+                ? 'loc'
+                : 'wait'
+            }`}
             ref={mapRef}
             style={styles.map}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-            initialRegion={{
-              latitude: lat ?? 53.4,
-              longitude: lng ?? -8.0,
-              latitudeDelta: activeCountyFilter && !lat ? 2.5 : 0.05,
-              longitudeDelta: activeCountyFilter && !lat ? 2.5 : 0.05,
-            }}
+            initialRegion={initialRegion}
             showsUserLocation={!!(lat && lng)}
             showsMyLocationButton={false}
             mapType="hybrid"
@@ -375,6 +394,32 @@ export default function NearbyScreen() {
             ))}
           </MapView>
         ) : null}
+
+        {/* Loading overlays — rendered AFTER the map so they paint on top. */}
+        {loading && !activeCountyFilter && (
+          <View style={styles.overlay} pointerEvents="none">
+            <ActivityIndicator color={COLORS.gold} size="large" />
+            <Text style={styles.overlayText}>Finding your location…</Text>
+          </View>
+        )}
+
+        {countyLoading && (
+          <View style={styles.overlay} pointerEvents="none">
+            <PulsingOrbs size={20} />
+            <Text style={[styles.overlayText, { marginTop: 16 }]}>Loading county sites…</Text>
+          </View>
+        )}
+
+        {error && !loading && !activeCountyFilter && (
+          <View style={styles.overlay}>
+            <Ionicons name="location-outline" size={40} color={COLORS.stoneLight} />
+            <Text style={styles.overlayTitle}>Location needed</Text>
+            <Text style={styles.overlayText}>{error}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={refresh}>
+              <Text style={styles.retryText}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* Location refresh FAB */}
@@ -456,6 +501,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.forestDark,
     gap: 12,
     padding: 32,
+    zIndex: 10,
+    elevation: 10,
   },
   overlayTitle: { fontSize: FONTS.sizes.xl, fontWeight: '700', color: COLORS.parchment },
   overlayText: { fontSize: FONTS.sizes.md, color: COLORS.stoneLight, textAlign: 'center' },
