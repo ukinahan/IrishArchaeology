@@ -428,7 +428,7 @@ export default function NearbyScreen() {
             onPress={() => {
               setActiveCountyFilter(null);
               setActivePeriodFilter(null);
-              router.replace('/');
+              router.replace('/welcome');
             }}
             accessibilityLabel="Back to start"
             accessibilityRole="button"
