@@ -13,11 +13,11 @@ import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 
 // Cap markers rendered on the map for performance.
-const MAX_MARKERS = 250;
+const MAX_MARKERS = 150;
 // Debounce dynamic bbox fetches as user pans/zooms.
-const BBOX_FETCH_DEBOUNCE_MS = 500;
+const BBOX_FETCH_DEBOUNCE_MS = 600;
 // Don't bother fetching when zoomed too far out (slow + low value).
-const MAX_BBOX_DELTA_DEG = 2.0;
+const MAX_BBOX_DELTA_DEG = 1.5;
 
 // All 26 counties of the Republic of Ireland—shown in the picker even before
 // their sites have been loaded.
@@ -53,31 +53,35 @@ export default function NearbyScreen() {
 
   // Helper: animate map to fit a county's site bounding box
   const focusCounty = useCallback((county: string) => {
-    const countySites = useSiteStore
-      .getState()
-      .allSites.filter((s) => s.county === county);
-    if (countySites.length === 0 || !mapRef.current) return;
-    let minLat = countySites[0].lat;
-    let maxLat = countySites[0].lat;
-    let minLng = countySites[0].lng;
-    let maxLng = countySites[0].lng;
-    for (const s of countySites) {
-      if (s.lat < minLat) minLat = s.lat;
-      if (s.lat > maxLat) maxLat = s.lat;
-      if (s.lng < minLng) minLng = s.lng;
-      if (s.lng > maxLng) maxLng = s.lng;
+    try {
+      const countySites = useSiteStore
+        .getState()
+        .allSites.filter((s) => s.county === county);
+      if (countySites.length === 0 || !mapRef.current) return;
+      let minLat = countySites[0].lat;
+      let maxLat = countySites[0].lat;
+      let minLng = countySites[0].lng;
+      let maxLng = countySites[0].lng;
+      for (const s of countySites) {
+        if (s.lat < minLat) minLat = s.lat;
+        if (s.lat > maxLat) maxLat = s.lat;
+        if (s.lng < minLng) minLng = s.lng;
+        if (s.lng > maxLng) maxLng = s.lng;
+      }
+      const latPad = Math.max((maxLat - minLat) * 0.15, 0.02);
+      const lngPad = Math.max((maxLng - minLng) * 0.15, 0.02);
+      mapRef.current.animateToRegion(
+        {
+          latitude: (minLat + maxLat) / 2,
+          longitude: (minLng + maxLng) / 2,
+          latitudeDelta: maxLat - minLat + latPad,
+          longitudeDelta: maxLng - minLng + lngPad,
+        },
+        700,
+      );
+    } catch (e) {
+      console.warn('focusCounty failed', e);
     }
-    const latPad = Math.max((maxLat - minLat) * 0.15, 0.02);
-    const lngPad = Math.max((maxLng - minLng) * 0.15, 0.02);
-    mapRef.current.animateToRegion(
-      {
-        latitude: (minLat + maxLat) / 2,
-        longitude: (minLng + maxLng) / 2,
-        latitudeDelta: maxLat - minLat + latPad,
-        longitudeDelta: maxLng - minLng + lngPad,
-      },
-      700,
-    );
   }, []);
 
   // Load cached sites on mount
@@ -99,14 +103,20 @@ export default function NearbyScreen() {
     didInitialCountyFocus.current = true;
     pendingCountyFocus.current = activeCountyFilter;
     (async () => {
-      setCountyLoading(true);
-      const existing = useSiteStore
-        .getState()
-        .allSites.some((s) => s.county === activeCountyFilter);
-      if (!existing) {
-        await loadSitesByCounty(activeCountyFilter);
+      try {
+        setCountyLoading(true);
+        const existing = useSiteStore
+          .getState()
+          .allSites.some((s) => s.county === activeCountyFilter);
+        if (!existing) {
+          await loadSitesByCounty(activeCountyFilter);
+        }
+      } catch (e) {
+        // Swallow — don't let unhandled rejection crash the screen
+        console.warn('Initial county load failed', e);
+      } finally {
+        setCountyLoading(false);
       }
-      setCountyLoading(false);
     })();
   }, [activeCountyFilter, loadSitesByCounty]);
 
@@ -136,28 +146,37 @@ export default function NearbyScreen() {
       if (county === activeCountyFilter) return;
       setActiveCountyFilter(county);
       if (county) {
-        setCountyLoading(true);
-        await loadSitesByCounty(county);
-        focusCounty(county);
-        setCountyLoading(false);
+        try {
+          setCountyLoading(true);
+          await loadSitesByCounty(county);
+          focusCounty(county);
+        } catch (e) {
+          console.warn('County change failed', e);
+        } finally {
+          setCountyLoading(false);
+        }
       } else {
         setCountyLoading(false);
-        // Re-centre on user when clearing county filter
         if (lat && lng && mapRef.current) {
-          mapRef.current.animateToRegion(
-            { latitude: lat, longitude: lng, latitudeDelta: 0.05, longitudeDelta: 0.05 },
-            500,
-          );
+          try {
+            mapRef.current.animateToRegion(
+              { latitude: lat, longitude: lng, latitudeDelta: 0.05, longitudeDelta: 0.05 },
+              500,
+            );
+          } catch {}
         }
       }
     },
     [setActiveCountyFilter, loadSitesByCounty, activeCountyFilter, focusCounty, lat, lng],
   );
 
-  // Dynamically load additional sites when the user pans/zooms the map
+  // Dynamically load additional sites when the user pans/zooms the map.
+  // Skipped while a county filter is active (sites already fully loaded) and
+  // while we're still animating into a focus, to avoid fetch storms / crashes.
   const handleRegionChangeComplete = useCallback(
     (region: Region) => {
-      // Skip very wide views (whole country)
+      if (activeCountyFilter) return;
+      if (pendingCountyFocus.current) return;
       if (region.latitudeDelta > MAX_BBOX_DELTA_DEG || region.longitudeDelta > MAX_BBOX_DELTA_DEG) {
         return;
       }
@@ -167,10 +186,10 @@ export default function NearbyScreen() {
         const maxLat = region.latitude + region.latitudeDelta / 2;
         const minLng = region.longitude - region.longitudeDelta / 2;
         const maxLng = region.longitude + region.longitudeDelta / 2;
-        loadSitesInBounds(minLat, minLng, maxLat, maxLng);
+        loadSitesInBounds(minLat, minLng, maxLat, maxLng).catch(() => {});
       }, BBOX_FETCH_DEBOUNCE_MS);
     },
-    [loadSitesInBounds],
+    [loadSitesInBounds, activeCountyFilter],
   );
 
   useEffect(() => {
