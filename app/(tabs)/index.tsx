@@ -1,7 +1,7 @@
 // app/(tabs)/index.tsx  —  Nearby Map screen
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -22,6 +22,7 @@ function radiusLabel(r: number | null): string {
 export default function NearbyScreen() {
   const router = useRouter();
   const { lat, lng, loading, error, refresh } = useLocation();
+  const mapRef = useRef<MapView>(null);
   const { radiusKm, setRadiusKm, activePeriodFilter, setActivePeriodFilter,
           activeCountyFilter, setActiveCountyFilter, getSitesNear,
           loadSitesNear, loadSitesByCounty, initFromCache, isLoading: sitesLoading, allSites } = useSiteStore();
@@ -127,6 +128,7 @@ export default function NearbyScreen() {
 
         {lat && lng && (
           <MapView
+            ref={mapRef}
             style={styles.map}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             initialRegion={{
@@ -185,7 +187,25 @@ export default function NearbyScreen() {
 
       {/* Location refresh FAB */}
       {lat && lng && (
-        <TouchableOpacity style={styles.fab} onPress={refresh} accessibilityLabel="Refresh location">
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={async () => {
+            await refresh();
+            const loc = await import('expo-location').then((m) =>
+              m.getCurrentPositionAsync({ accuracy: m.Accuracy.Balanced }),
+            );
+            mapRef.current?.animateToRegion(
+              {
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+                latitudeDelta: (radiusKm ?? 1) * 0.02,
+                longitudeDelta: (radiusKm ?? 1) * 0.02,
+              },
+              600,
+            );
+          }}
+          accessibilityLabel="Centre map on my location"
+        >
           <Ionicons name="locate" size={22} color={COLORS.forestDark} />
         </TouchableOpacity>
       )}
