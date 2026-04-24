@@ -1,5 +1,6 @@
 // src/components/SiteCard.tsx
 // Full-screen site detail card (used in site/[id].tsx)
+import { useEffect, useState } from 'react';
 import {
   ScrollView,
   View,
@@ -8,6 +9,9 @@ import {
   TouchableOpacity,
   Platform,
   Share,
+  Image,
+  ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,6 +22,10 @@ import { PeriodBadge } from './PeriodBadge';
 import { TimelineBar } from './TimelineBar';
 import { AccessBadge } from './AccessBadge';
 import { useSiteStore } from '../store/useSiteStore';
+import { fetchSitePhoto, SitePhoto } from '../services/wikimediaService';
+
+// Feature flag — flip to false to disable Wikimedia photo lookup instantly.
+const ENABLE_WIKIMEDIA_PHOTOS = true;
 
 interface Props {
   site: ArchSite;
@@ -27,6 +35,25 @@ export function SiteCard({ site }: Props) {
   const router = useRouter();
   const isSaved = useSiteStore((s) => s.isSaved(site.id));
   const toggleSaved = useSiteStore((s) => s.toggleSaved);
+
+  const [photo, setPhoto] = useState<SitePhoto | null>(null);
+  const [photoLoading, setPhotoLoading] = useState<boolean>(ENABLE_WIKIMEDIA_PHOTOS);
+
+  useEffect(() => {
+    if (!ENABLE_WIKIMEDIA_PHOTOS) return;
+    let cancelled = false;
+    setPhotoLoading(true);
+    fetchSitePhoto(site)
+      .then((p) => {
+        if (!cancelled) setPhoto(p);
+      })
+      .finally(() => {
+        if (!cancelled) setPhotoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [site.id]);
 
   const handleShare = async () => {
     await Share.share({
@@ -65,6 +92,35 @@ export function SiteCard({ site }: Props) {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+        {/* Photo (Wikimedia Commons) */}
+        {ENABLE_WIKIMEDIA_PHOTOS && (photoLoading || photo) ? (
+          <View style={styles.photoWrap}>
+            {photo ? (
+              <>
+                <Image
+                  source={{ uri: photo.url }}
+                  style={styles.photo}
+                  resizeMode="cover"
+                  accessibilityLabel={`Photo of ${site.name}`}
+                />
+                <TouchableOpacity
+                  onPress={() => photo.pageUrl && Linking.openURL(photo.pageUrl)}
+                  style={styles.attribution}
+                  accessibilityLabel="View photo source on Wikimedia"
+                >
+                  <Text style={styles.attributionText} numberOfLines={2}>
+                    Photo: {photo.artist} · {photo.licenseShort} · Wikimedia Commons
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <View style={styles.photoSkeleton}>
+                <ActivityIndicator color={COLORS.gold} />
+              </View>
+            )}
+          </View>
+        ) : null}
+
         {/* Hero area */}
         <View style={styles.hero}>
           <PeriodBadge period={site.period} />
@@ -169,6 +225,29 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1 },
   content: { padding: 24 },
+  photoWrap: {
+    marginBottom: 20,
+    borderRadius: RADII.md,
+    overflow: 'hidden',
+    backgroundColor: COLORS.bgCard,
+  },
+  photo: { width: '100%', height: 220 },
+  photoSkeleton: {
+    width: '100%',
+    height: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attribution: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: COLORS.bgCardAlt,
+  },
+  attributionText: {
+    fontSize: 11,
+    color: COLORS.stoneLight,
+    lineHeight: 14,
+  },
   hero: { gap: 6, marginBottom: 24 },
   type: { fontSize: FONTS.sizes.sm, color: COLORS.stoneLight, fontWeight: '500', marginTop: 8 },
   name: { fontSize: FONTS.sizes.xxxl, fontWeight: '800', color: COLORS.parchment, lineHeight: 36 },

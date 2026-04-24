@@ -99,7 +99,8 @@ export default function NearbyScreen() {
   const cameraRef = useRef<Camera>(null);
   const { activePeriodFilter, setActivePeriodFilter,
           activeCountyFilter, setActiveCountyFilter, getSitesNear,
-          loadSitesNear, loadSitesByCounty, loadSitesInBounds, initFromCache, allSites,
+          loadSitesNear, loadSitesByCounty, loadSitesInBounds, loadCountrySample,
+          initFromCache, allSites,
           bboxLoading } = useSiteStore();
 
   const AVAILABLE_COUNTIES = useMemo(() => {
@@ -146,8 +147,13 @@ export default function NearbyScreen() {
     }
   }, []);
 
-  // Load cached sites on mount
-  useEffect(() => { initFromCache(); }, []);
+  // Load cached sites on mount, and kick off a country-wide sparse sample so
+  // the wide initial map view shows dots scattered across all of Ireland
+  // rather than a single cluster around the user's GPS location.
+  useEffect(() => {
+    initFromCache();
+    if (!activeCountyFilter) loadCountrySample();
+  }, []);
 
   // When location available with NO county selected, fetch nearby sites
   useEffect(() => {
@@ -333,6 +339,24 @@ export default function NearbyScreen() {
 
   const sites = useMemo(() => {
     if (allFilteredSites.length <= MAX_MARKERS) return allFilteredSites;
+
+    // When zoomed out wide with no county filter, show a spatially even
+    // sample across all loaded sites instead of "closest to user" — that
+    // sort would clump every marker around the GPS dot and leave the rest
+    // of the country empty.
+    const wideZoom =
+      !activeCountyFilter &&
+      visibleRegion &&
+      (visibleRegion.latitudeDelta > MAX_BBOX_DELTA_DEG ||
+        visibleRegion.longitudeDelta > MAX_BBOX_DELTA_DEG);
+    if (wideZoom) {
+      const step = allFilteredSites.length / MAX_MARKERS;
+      const sample: typeof allFilteredSites = [];
+      for (let i = 0; i < MAX_MARKERS; i++) {
+        sample.push(allFilteredSites[Math.floor(i * step)]);
+      }
+      return sample;
+    }
 
     // Prefer markers within the currently visible map region. Without this
     // we'd just slice the first MAX_MARKERS of the array — which after

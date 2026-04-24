@@ -63,6 +63,7 @@ function mapFeatureToSite(f: ArcGISFeature): ArchSite {
     accessStatus: 'protected',
     accessNote: 'Recorded in the Sites and Monuments Record. Protected under the National Monuments Act.',
     isMonument: true,
+    nmsLink: a.WEBSITE_LINK ?? undefined,
   };
 }
 
@@ -190,6 +191,45 @@ export async function fetchSitesInBounds(
   if (!res.ok) throw new Error(`NMS API error: ${res.status}`);
   const data: ArcGISResponse = await res.json();
   return (data.features ?? []).map(mapFeatureToSite);
+}
+
+/**
+ * Fetch a small spatially-distributed sample of sites covering all of Ireland.
+ * Runs one parallel query per county capped at `perCounty` records so the
+ * initial Explorer view shows dots scattered across the whole country rather
+ * than a single cluster around the user's GPS location.
+ */
+const ALL_IRISH_COUNTIES_UPPER = [
+  'CARLOW', 'CAVAN', 'CLARE', 'CORK', 'DONEGAL', 'DUBLIN', 'GALWAY',
+  'KERRY', 'KILDARE', 'KILKENNY', 'LAOIS', 'LEITRIM', 'LIMERICK',
+  'LONGFORD', 'LOUTH', 'MAYO', 'MEATH', 'MONAGHAN', 'OFFALY',
+  'ROSCOMMON', 'SLIGO', 'TIPPERARY', 'WATERFORD', 'WESTMEATH',
+  'WEXFORD', 'WICKLOW',
+];
+
+export async function fetchCountrySample(perCounty: number = 80): Promise<ArchSite[]> {
+  const results = await Promise.all(
+    ALL_IRISH_COUNTIES_UPPER.map(async (county) => {
+      const where = `COUNTY = '${county}' AND MONUMENT_CLASS <> 'Redundant record'`;
+      const params = new URLSearchParams({
+        where,
+        outFields: OUT_FIELDS,
+        outSR: '4326',
+        returnGeometry: 'false',
+        resultRecordCount: String(perCounty),
+        f: 'json',
+      });
+      try {
+        const r = await fetch(`${BASE_URL}?${params.toString()}`);
+        if (!r.ok) return [] as ArchSite[];
+        const d: ArcGISResponse = await r.json();
+        return (d.features ?? []).map(mapFeatureToSite);
+      } catch {
+        return [] as ArchSite[];
+      }
+    }),
+  );
+  return results.flat();
 }
 
 /**

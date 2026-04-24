@@ -30,6 +30,7 @@ export interface ArchSite {
   // Optional
   imageUrl?: string;
   smrRef?: string;
+  nmsLink?: string; // Official Archaeological Survey of Ireland record URL
   county: string;
 }
 
