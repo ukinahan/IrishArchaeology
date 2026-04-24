@@ -202,6 +202,94 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+/**
+ * Detour cost for visiting `p` between `a` and `b`.
+ *   detour = dist(a,p) + dist(p,b) - dist(a,b)
+ * Zero when p is on the straight line, large when it's far off-corridor.
+ * For round trips (b == a), this collapses to 2 * dist(a,p).
+ */
+function detourKm(
+  p: { lat: number; lng: number },
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  return haversineKm(a, p) + haversineKm(p, b) - haversineKm(a, b);
+}
+
+/**
+ * Filter and re-rank candidate stops so that ones close to the user's
+ * start → end corridor float to the top, and ones requiring an absurd
+ * detour are removed entirely. Without this the planner happily picks
+ * Skellig Michael when you start in Dublin for a 1-day trip.
+ */
+function applyGeoBias(
+  stops: TripStop[],
+  start: StartPoint | null | undefined,
+  end: StartPoint | null | undefined,
+  days: number,
+): TripStop[] {
+  if (!start) return stops;
+  const a = start;
+  const b = end ?? start;
+  // Hard cap on per-site detour; scales with days. ~80 km/day extra mileage
+  // tolerated, so a 2-day trip from Dublin can reach Galway but not Kerry.
+  const maxDetour = Math.max(60, 80 * Math.max(1, days));
+  const adjusted: TripStop[] = [];
+  for (const s of stops) {
+    const d = detourKm(s.site, a, b);
+    if (d > maxDetour) continue;
+    // Penalty: 1 score-point per 25 km of detour. The marquee bonus is +20
+    // so a curated site stays preferred up to ~500 km of detour, while
+    // ordinary sites are quickly out-ranked by closer alternatives.
+    adjusted.push({ ...s, score: s.score - d / 25 });
+  }
+  return adjusted.sort((x, y) => y.score - x.score);
+}
+
+/**
+ * Brute-force TSP over cluster centroids. Returns clusters reordered to
+ * minimise total km from `start` through every cluster to `end`. Caller
+ * guarantees clusters.length ≤ 7 so 7! = 5040 perms is trivial.
+ */
+function orderClustersTsp(
+  clusters: TripStop[][],
+  start: { lat: number; lng: number },
+  end: { lat: number; lng: number },
+): TripStop[][] {
+  if (clusters.length <= 1) return clusters;
+  const centroids = clusters.map((c) => ({
+    lat: c.reduce((s, p) => s + p.site.lat, 0) / c.length,
+    lng: c.reduce((s, p) => s + p.site.lng, 0) / c.length,
+  }));
+
+  const indices = clusters.map((_, i) => i);
+
+  const permute = (arr: number[]): number[][] => {
+    if (arr.length <= 1) return [arr];
+    const out: number[][] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const rest = arr.slice(0, i).concat(arr.slice(i + 1));
+      for (const p of permute(rest)) out.push([arr[i], ...p]);
+    }
+    return out;
+  };
+
+  let bestOrder = indices;
+  let bestCost = Infinity;
+  for (const perm of permute(indices)) {
+    let cost = haversineKm(start, centroids[perm[0]]);
+    for (let i = 0; i < perm.length - 1; i++) {
+      cost += haversineKm(centroids[perm[i]], centroids[perm[i + 1]]);
+    }
+    cost += haversineKm(centroids[perm[perm.length - 1]], end);
+    if (cost < bestCost) {
+      bestCost = cost;
+      bestOrder = perm;
+    }
+  }
+  return bestOrder.map((i) => clusters[i]);
+}
+
 interface Centroid {
   lat: number;
   lng: number;
@@ -455,6 +543,13 @@ export function planTrip({ sites, period, county, days, themeKey, start, end }: 
       .sort((a, b) => b.score - a.score);
   }
 
+  // Apply geo-bias only when the user provided a start point AND we aren't
+  // building a themed route (themed routes are by definition geographically
+  // coherent already — don't strip Newgrange because the user lives in Cork).
+  if (start && !theme) {
+    scored = applyGeoBias(scored, start, end, safeDays);
+  }
+
   const targetCount = Math.min(scored.length, safeDays * STOPS_PER_DAY);
   const picked: TripStop[] = [];
   const usedMarquee = new Set<string>();
@@ -490,56 +585,24 @@ export function planTrip({ sites, period, county, days, themeKey, start, end }: 
   const clusters = kMeans(picked, safeDays);
   balanceClusters(clusters, picked.length, safeDays);
 
-  const centroid = (cluster: TripStop[]) => ({
-    lat: cluster.reduce((s, p) => s + p.site.lat, 0) / cluster.length,
-    lng: cluster.reduce((s, p) => s + p.site.lng, 0) / cluster.length,
-  });
-
-  // Order clusters into days. Three modes:
-  //   - start + end given: greedy from start, but force the cluster nearest
-  //     to end to be the final day so the trip lands where the user wants.
-  //   - start only: greedy from start (nearest cluster first).
+  // Order the clusters into days.
+  //   - start present: brute-force TSP from start → (end | start) for an
+  //     optimal day order. Handles round-trips and one-ways uniformly.
   //   - neither: west-to-east for a natural visual flow.
-  if (start && end && clusters.length > 1) {
-    // Pick the end cluster: nearest-to-end of the bottom half by start-distance
-    // so we don't force a tiny detour as the final day.
-    let endIdx = 0;
-    let endDist = Infinity;
-    for (let i = 0; i < clusters.length; i++) {
-      const d = haversineKm(end, centroid(clusters[i]));
-      if (d < endDist) { endDist = d; endIdx = i; }
-    }
-    const endCluster = clusters.splice(endIdx, 1)[0];
-    // Greedy order the rest from start
-    const remaining = clusters.slice();
-    const ordered: TripStop[][] = [];
-    let cursor: { lat: number; lng: number } = start;
-    while (remaining.length > 0) {
-      let bestI = 0;
-      let bestD = Infinity;
-      for (let i = 0; i < remaining.length; i++) {
-        const d = haversineKm(cursor, centroid(remaining[i]));
-        if (d < bestD) { bestD = d; bestI = i; }
-      }
-      const next = remaining.splice(bestI, 1)[0];
-      ordered.push(next);
-      cursor = centroid(next);
-    }
-    ordered.push(endCluster);
-    clusters.length = 0;
-    clusters.push(...ordered);
-  } else if (start) {
-    clusters.sort((a, b) => haversineKm(start, centroid(a)) - haversineKm(start, centroid(b)));
+  let orderedClusters: TripStop[][];
+  if (start) {
+    const finishAt = end ?? start;
+    orderedClusters = orderClustersTsp(clusters, start, finishAt);
   } else {
-    clusters.sort((a, b) => {
+    orderedClusters = clusters.slice().sort((a, b) => {
       const ax = a.reduce((s, p) => s + p.site.lng, 0) / a.length;
       const bx = b.reduce((s, p) => s + p.site.lng, 0) / b.length;
       return ax - bx;
     });
   }
 
-  const lastDayIndex = clusters.length - 1;
-  const tripDays: TripDay[] = clusters.map((cluster, i) => {
+  const lastDayIndex = orderedClusters.length - 1;
+  const tripDays: TripDay[] = orderedClusters.map((cluster, i) => {
     // Day 1 anchors at the start point; the last day anchors at the end
     // point (if given) so the final stop lands closest to the user's
     // destination. Intermediate days fall back to the centroid heuristic.
