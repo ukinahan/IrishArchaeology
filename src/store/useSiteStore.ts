@@ -1,7 +1,7 @@
 // src/store/useSiteStore.ts
 import { create } from 'zustand';
 import { ArchSite, Period } from '../data/sites';
-import { fetchSitesNear as apiFetchNear, fetchSitesByCounty, fetchSitesInBounds } from '../services/siteService';
+import { fetchSitesNear as apiFetchNear, fetchSitesByCounty, fetchSitesInBounds, fetchCountrySample } from '../services/siteService';
 import { getCachedSites, cacheSites } from '../utils/offlineCache';
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -25,11 +25,13 @@ interface SiteStore {
   activePeriodFilter: Period | null;
   activeCountyFilter: string | null;
   radiusKm: number | null; // null = show all
+  countrySampleLoaded: boolean;
 
   // Actions
   loadSitesNear: (lat: number, lng: number, radiusKm?: number) => Promise<void>;
   loadSitesByCounty: (county: string) => Promise<void>;
   loadSitesInBounds: (minLat: number, minLng: number, maxLat: number, maxLng: number) => Promise<void>;
+  loadCountrySample: () => Promise<void>;
   initFromCache: () => Promise<void>;
   toggleSaved: (siteId: string) => void;
   isSaved: (siteId: string) => boolean;
@@ -67,6 +69,22 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
   activePeriodFilter: null,
   activeCountyFilter: null,
   radiusKm: 10 as number | null,
+  countrySampleLoaded: false,
+
+  loadCountrySample: async () => {
+    if (get().countrySampleLoaded) return;
+    try {
+      const sites = await fetchCountrySample(80);
+      if (sites.length === 0) return;
+      set((s) => {
+        const merged = mergeSites(s.allSites, sites);
+        cacheSites(merged).catch(() => {});
+        return { allSites: merged, countrySampleLoaded: true };
+      });
+    } catch {
+      // Non-fatal — leaves flag false so a later attempt can retry
+    }
+  },
 
   initFromCache: async () => {
     try {
