@@ -41,6 +41,7 @@ export interface TripPlan {
   county: string | null;
   themeKey?: string;        // suggested-mode theme used to build this plan
   start?: StartPoint;
+  end?: StartPoint;         // optional finishing point (round-trip vs one-way)
   days: TripDay[];
   totalSites: number;
   totalKm: number;
@@ -323,44 +324,78 @@ function balanceClusters(clusters: TripStop[][], total: number, k: number): void
   }
 }
 
-/** Nearest-neighbour ordering, optionally starting from an anchor point. */
-function orderStops(stops: TripStop[], anchor: { lat: number; lng: number } | null = null): { ordered: TripStop[]; totalKm: number } {
-  if (stops.length <= 1) return { ordered: stops.slice(), totalKm: 0 };
-  const seed: Centroid = anchor ?? {
-    lat: stops.reduce((s, p) => s + p.site.lat, 0) / stops.length,
-    lng: stops.reduce((s, p) => s + p.site.lng, 0) / stops.length,
+/** Nearest-neighbour ordering, optionally anchored at a start and/or end point. */
+function orderStops(
+  stops: TripStop[],
+  startAnchor: { lat: number; lng: number } | null = null,
+  endAnchor: { lat: number; lng: number } | null = null,
+): { ordered: TripStop[]; totalKm: number } {
+  if (stops.length === 0) return { ordered: [], totalKm: 0 };
+  if (stops.length === 1) {
+    const only = stops[0];
+    let totalKm = 0;
+    if (startAnchor) totalKm += haversineKm(startAnchor, only.site);
+    if (endAnchor) totalKm += haversineKm(only.site, endAnchor);
+    return { ordered: [only], totalKm };
+  }
+
+  let working = stops.slice();
+  let finalStop: TripStop | null = null;
+
+  // If an end anchor exists, reserve the stop closest to it for last.
+  if (endAnchor) {
+    let bestI = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < working.length; i++) {
+      const d = haversineKm(working[i].site, endAnchor);
+      if (d < bestD) { bestD = d; bestI = i; }
+    }
+    finalStop = working.splice(bestI, 1)[0];
+  }
+
+  const seed: Centroid = startAnchor ?? {
+    lat: working.reduce((s, p) => s + p.site.lat, 0) / Math.max(1, working.length),
+    lng: working.reduce((s, p) => s + p.site.lng, 0) / Math.max(1, working.length),
   };
 
-  const remaining = stops.slice();
   const ordered: TripStop[] = [];
-  // Start at the stop closest to the seed point (anchor or centroid)
-  let startIdx = 0;
-  let startDist = Infinity;
-  for (let i = 0; i < remaining.length; i++) {
-    const d = haversineKm(remaining[i].site, seed);
-    if (d < startDist) {
-      startDist = d;
-      startIdx = i;
-    }
-  }
-  let current = remaining.splice(startIdx, 1)[0];
-  ordered.push(current);
+  let totalKm = 0;
 
-  let totalKm = anchor ? startDist : 0;
-  while (remaining.length > 0) {
-    let nextIdx = 0;
-    let nextDist = Infinity;
-    for (let i = 0; i < remaining.length; i++) {
-      const d = haversineKm(current.site, remaining[i].site);
-      if (d < nextDist) {
-        nextDist = d;
-        nextIdx = i;
-      }
+  if (working.length > 0) {
+    // Start at the stop closest to the seed point (anchor or centroid)
+    let startIdx = 0;
+    let startDist = Infinity;
+    for (let i = 0; i < working.length; i++) {
+      const d = haversineKm(working[i].site, seed);
+      if (d < startDist) { startDist = d; startIdx = i; }
     }
-    totalKm += nextDist;
-    current = remaining.splice(nextIdx, 1)[0];
+    let current = working.splice(startIdx, 1)[0];
     ordered.push(current);
+    if (startAnchor) totalKm += startDist;
+
+    while (working.length > 0) {
+      let nextIdx = 0;
+      let nextDist = Infinity;
+      for (let i = 0; i < working.length; i++) {
+        const d = haversineKm(current.site, working[i].site);
+        if (d < nextDist) { nextDist = d; nextIdx = i; }
+      }
+      totalKm += nextDist;
+      current = working.splice(nextIdx, 1)[0];
+      ordered.push(current);
+    }
   }
+
+  if (finalStop) {
+    if (ordered.length > 0) {
+      totalKm += haversineKm(ordered[ordered.length - 1].site, finalStop.site);
+    } else if (startAnchor) {
+      totalKm += haversineKm(startAnchor, finalStop.site);
+    }
+    ordered.push(finalStop);
+    if (endAnchor) totalKm += haversineKm(finalStop.site, endAnchor);
+  }
+
   return { ordered, totalKm };
 }
 
@@ -371,9 +406,10 @@ export interface PlanTripInput {
   days: number;
   themeKey?: string | null;   // suggested-mode preset (see SUGGESTED_THEMES)
   start?: StartPoint | null;  // optional starting location
+  end?: StartPoint | null;    // optional ending location (defaults to start = round trip)
 }
 
-export function planTrip({ sites, period, county, days, themeKey, start }: PlanTripInput): TripPlan {
+export function planTrip({ sites, period, county, days, themeKey, start, end }: PlanTripInput): TripPlan {
   const safeDays = Math.max(1, Math.min(7, Math.floor(days)));
   const theme = period === 'suggested' ? findTheme(themeKey) : undefined;
 
@@ -454,14 +490,46 @@ export function planTrip({ sites, period, county, days, themeKey, start }: PlanT
   const clusters = kMeans(picked, safeDays);
   balanceClusters(clusters, picked.length, safeDays);
 
-  // If a start point was given, sort clusters by proximity to start so day 1
-  // begins nearest the user. Otherwise order west-to-east for a natural flow.
-  if (start) {
-    clusters.sort((a, b) => {
-      const ac = { lat: a.reduce((s, p) => s + p.site.lat, 0) / a.length, lng: a.reduce((s, p) => s + p.site.lng, 0) / a.length };
-      const bc = { lat: b.reduce((s, p) => s + p.site.lat, 0) / b.length, lng: b.reduce((s, p) => s + p.site.lng, 0) / b.length };
-      return haversineKm(start, ac) - haversineKm(start, bc);
-    });
+  const centroid = (cluster: TripStop[]) => ({
+    lat: cluster.reduce((s, p) => s + p.site.lat, 0) / cluster.length,
+    lng: cluster.reduce((s, p) => s + p.site.lng, 0) / cluster.length,
+  });
+
+  // Order clusters into days. Three modes:
+  //   - start + end given: greedy from start, but force the cluster nearest
+  //     to end to be the final day so the trip lands where the user wants.
+  //   - start only: greedy from start (nearest cluster first).
+  //   - neither: west-to-east for a natural visual flow.
+  if (start && end && clusters.length > 1) {
+    // Pick the end cluster: nearest-to-end of the bottom half by start-distance
+    // so we don't force a tiny detour as the final day.
+    let endIdx = 0;
+    let endDist = Infinity;
+    for (let i = 0; i < clusters.length; i++) {
+      const d = haversineKm(end, centroid(clusters[i]));
+      if (d < endDist) { endDist = d; endIdx = i; }
+    }
+    const endCluster = clusters.splice(endIdx, 1)[0];
+    // Greedy order the rest from start
+    const remaining = clusters.slice();
+    const ordered: TripStop[][] = [];
+    let cursor: { lat: number; lng: number } = start;
+    while (remaining.length > 0) {
+      let bestI = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const d = haversineKm(cursor, centroid(remaining[i]));
+        if (d < bestD) { bestD = d; bestI = i; }
+      }
+      const next = remaining.splice(bestI, 1)[0];
+      ordered.push(next);
+      cursor = centroid(next);
+    }
+    ordered.push(endCluster);
+    clusters.length = 0;
+    clusters.push(...ordered);
+  } else if (start) {
+    clusters.sort((a, b) => haversineKm(start, centroid(a)) - haversineKm(start, centroid(b)));
   } else {
     clusters.sort((a, b) => {
       const ax = a.reduce((s, p) => s + p.site.lng, 0) / a.length;
@@ -470,16 +538,28 @@ export function planTrip({ sites, period, county, days, themeKey, start }: PlanT
     });
   }
 
+  const lastDayIndex = clusters.length - 1;
   const tripDays: TripDay[] = clusters.map((cluster, i) => {
-    // Day 1 starts from the user's start point (if any) instead of the
-    // cluster centroid so the first leg flows out from where they are.
-    const seedFrom = i === 0 && start ? start : null;
-    const { ordered, totalKm } = orderStops(cluster, seedFrom);
+    // Day 1 anchors at the start point; the last day anchors at the end
+    // point (if given) so the final stop lands closest to the user's
+    // destination. Intermediate days fall back to the centroid heuristic.
+    const startAnchor = i === 0 && start ? start : null;
+    const endAnchor = i === lastDayIndex && end ? end : null;
+    const { ordered, totalKm } = orderStops(cluster, startAnchor, endAnchor);
     return { index: i, stops: ordered, totalKm };
   });
 
   const totalSites = tripDays.reduce((s, d) => s + d.stops.length, 0);
   const totalKm = tripDays.reduce((s, d) => s + d.totalKm, 0);
 
-  return { period, county, themeKey: theme?.key, start: start ?? undefined, days: tripDays, totalSites, totalKm };
+  return {
+    period,
+    county,
+    themeKey: theme?.key,
+    start: start ?? undefined,
+    end: end ?? undefined,
+    days: tripDays,
+    totalSites,
+    totalKm,
+  };
 }

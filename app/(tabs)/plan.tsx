@@ -89,6 +89,12 @@ export default function PlanScreen() {
   const [startInput, setStartInput] = useState<string>('');
   const [usingGps, setUsingGps] = useState<boolean>(false);
 
+  // Optional ending point. When `endsAtStart` is true (default once a start
+  // is provided), we treat it as a round-trip and don't ask for a separate
+  // end. The user can flip the switch to enter a different end point.
+  const [endInput, setEndInput] = useState<string>('');
+  const [endsAtStart, setEndsAtStart] = useState<boolean>(true);
+
   const canBuild = period !== null;
 
   // When the user picks a theme, auto-fill the county for context. They can
@@ -126,6 +132,22 @@ export default function PlanScreen() {
         start = { lat: g.lat, lng: g.lng, label: startInput.trim() };
       }
 
+      // Resolve end point. If "ends at start" is on (default) we mirror the
+      // start point so the planner closes the loop. Otherwise we geocode the
+      // typed end address. If neither start nor end is given, leave it null.
+      let end: StartPoint | null = null;
+      if (start && endsAtStart) {
+        end = { ...start, label: `Return to ${start.label}` };
+      } else if (!endsAtStart && endInput.trim().length >= 2) {
+        const g = await geocodePlace(endInput);
+        if (!g) {
+          setError(`Couldn't find "${endInput}". Try a town or address.`);
+          setPhase('wizard');
+          return;
+        }
+        end = { lat: g.lat, lng: g.lng, label: endInput.trim() };
+      }
+
       // If a county is chosen, make sure we have its sites in the store.
       // Otherwise plan from whatever is loaded — typically the country sample
       // plus any counties the user has browsed this session.
@@ -140,7 +162,7 @@ export default function PlanScreen() {
           }
         }
       }
-      const built = planTrip({ sites: pool, period, county, days, themeKey, start });
+      const built = planTrip({ sites: pool, period, county, days, themeKey, start, end });
       if (built.totalSites === 0) {
         const where = county ? `Co. ${county}` : 'this area';
         setError(
@@ -161,7 +183,7 @@ export default function PlanScreen() {
       setError(e instanceof Error ? e.message : 'Could not build trip');
       setPhase('wizard');
     }
-  }, [period, county, days, themeKey, startInput, usingGps, userLocation, allSites, addSites]);
+  }, [period, county, days, themeKey, startInput, usingGps, endsAtStart, endInput, userLocation, allSites, addSites]);
 
   const handleReset = useCallback(() => {
     setPlan(null);
@@ -424,6 +446,51 @@ export default function PlanScreen() {
           We'll order the days so you start nearest your location.
         </Text>
 
+        {/* End point */}
+        {(usingGps || startInput.trim().length >= 2) && (
+          <>
+            <View style={styles.endHeaderRow}>
+              <Text style={[styles.sectionLabel, { marginTop: 16, marginBottom: 0, flex: 1 }]}>
+                Where does your trip end?
+              </Text>
+              <TouchableOpacity
+                style={styles.toggleRow}
+                onPress={() => setEndsAtStart((v) => !v)}
+                accessibilityLabel="Toggle round trip"
+              >
+                <Ionicons
+                  name={endsAtStart ? 'checkbox' : 'square-outline'}
+                  size={18}
+                  color={endsAtStart ? COLORS.gold : COLORS.stoneLight}
+                />
+                <Text style={styles.toggleText}>Round trip</Text>
+              </TouchableOpacity>
+            </View>
+            {endsAtStart ? (
+              <Text style={styles.helpText}>
+                Trip will return to your starting point. Uncheck to set a different end.
+              </Text>
+            ) : (
+              <>
+                <View style={styles.startRow}>
+                  <TextInput
+                    style={styles.startInput}
+                    value={endInput}
+                    onChangeText={setEndInput}
+                    placeholder="e.g. Shannon Airport, Belfast"
+                    placeholderTextColor={COLORS.stoneLight}
+                    autoCorrect={false}
+                    autoCapitalize="words"
+                  />
+                </View>
+                <Text style={styles.helpText}>
+                  We'll route the last day so it ends nearest here.
+                </Text>
+              </>
+            )}
+          </>
+        )}
+
         {/* County */}
         <Text style={styles.sectionLabel}>2. Anywhere in Ireland — or pick a county</Text>
         <TouchableOpacity
@@ -510,6 +577,11 @@ function formatItinerary(plan: TripPlan): string {
   const header = `Evin Cairn — ${periodLabel(plan.period)} trip`;
   const sub = `${plan.county ? `Co. ${plan.county}` : 'Ireland'} · ${plan.days.length} ${plan.days.length === 1 ? 'day' : 'days'} · ${plan.totalSites} stops · ~${plan.totalKm.toFixed(0)} km`;
   const startLine = plan.start ? `Starting from: ${plan.start.label}` : '';
+  const endLine = plan.end
+    ? plan.end.label.startsWith('Return to')
+      ? `Round trip — returns to start`
+      : `Ending at: ${plan.end.label}`
+    : '';
   const dayBlocks = plan.days.map((day) => {
     const lines = day.stops.map((stop, i) => {
       const name = stop.marquee?.name ?? stop.site.name;
@@ -523,7 +595,7 @@ function formatItinerary(plan: TripPlan): string {
     return `Day ${day.index + 1} — ${day.stops.length} stops · ~${day.totalKm.toFixed(0)} km\n${lines.join('\n')}`;
   });
   const footer = '\nPlanned with Evin Cairn — Irish Archaeology';
-  return [header, sub, startLine, '', ...dayBlocks, footer].filter(Boolean).join('\n');
+  return [header, sub, startLine, endLine, '', ...dayBlocks, footer].filter(Boolean).join('\n');
 }
 
 // Wikipedia search link for sites without an NMS info URL.
@@ -842,6 +914,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   gpsBtnActive: { backgroundColor: COLORS.gold, borderColor: COLORS.goldLight },
+  endHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
+  toggleText: { color: COLORS.parchment, fontSize: FONTS.sizes.xs, fontWeight: '600' },
   mapsBtn: {
     width: 36,
     height: 36,
