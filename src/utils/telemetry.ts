@@ -25,25 +25,17 @@ export function initTelemetry(): void {
   initialised = true;
 
   const extra = getExtra();
-  const sentryDsn: string | undefined = extra.SENTRY_DSN;
   const posthogKey: string | undefined = extra.POSTHOG_API_KEY;
   const posthogHost: string = extra.POSTHOG_HOST ?? 'https://eu.i.posthog.com';
 
-  if (sentryDsn) {
-    try {
-      // Dynamic require so the bundle doesn't blow up if the package isn't
-      // installed yet.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const Sentry = require('@sentry/react-native');
-      Sentry.init({
-        dsn: sentryDsn,
-        tracesSampleRate: 0.2,
-        enableAutoSessionTracking: true,
-      });
-      sentry = Sentry;
-    } catch {
-      // Package not installed yet — ignore.
-    }
+  // Sentry is initialised eagerly at the top of app/_layout.tsx by the
+  // @sentry/wizard setup. Here we just hold a reference for our facade
+  // (reportError / identify) so we don't double-init.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    sentry = require('@sentry/react-native');
+  } catch {
+    // Package not installed (e.g. in unit tests) — ignore.
   }
 
   if (posthogKey) {

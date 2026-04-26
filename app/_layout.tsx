@@ -6,8 +6,23 @@ import { useEffect } from 'react';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { initTelemetry, track } from '@/utils/telemetry';
 import { useContentStore } from '@/store/useContentStore';
+import * as Sentry from '@sentry/react-native';
 
-export default function RootLayout() {
+Sentry.init({
+  dsn: 'https://17bbe9dc7ab83c9e32decdc4b9bde7a1@o4511287408197632.ingest.de.sentry.io/4511287414095952',
+
+  // Adds more context data to events (IP address, cookies, user, etc.)
+  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
+  sendDefaultPii: true,
+
+  // Enable Logs
+  enableLogs: true,
+
+  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+  // spotlight: __DEV__,
+});
+
+export default Sentry.wrap(function RootLayout() {
   useEffect(() => {
     initTelemetry();
     track('app_open');
@@ -23,7 +38,7 @@ export default function RootLayout() {
       </ErrorBoundary>
     </GestureHandlerRootView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1 },

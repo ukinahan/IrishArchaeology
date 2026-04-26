@@ -75,6 +75,14 @@
         {
           "locationAlwaysAndWhenInUsePermission": "We use your location to show archaeology sites near you."
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "irish-archaeology",
+          "organization": "kintech-mg"
+        }
       ]
     ],
     "scheme": "irisharchaeology",

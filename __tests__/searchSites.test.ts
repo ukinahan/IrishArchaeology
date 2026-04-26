@@ -19,9 +19,11 @@ describe('searchSites', () => {
   it('strips wildcard characters from user input', async () => {
     await searchSites('Tara%_');
     const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
-    expect(url).not.toMatch(/%25/); // no encoded % survives
-    expect(url).not.toMatch(/_/);
-    expect(url).toContain('TARA');
+    const decoded = decodeURIComponent(url);
+    // SQL LIKE wildcards from user input should be stripped — the only %/_
+    // chars that survive are the SQL pattern delimiters added by the service.
+    expect(decoded).toContain("LIKE+'%TARA%'");
+    expect(decoded).not.toContain('TARA%_');
   });
 
   it("escapes single quotes", async () => {
