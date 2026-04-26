@@ -1,8 +1,26 @@
 // src/store/useSiteStore.ts
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ArchSite, Period } from '../data/sites';
 import { fetchSitesNear as apiFetchNear, fetchSitesByCounty, fetchSitesInBounds, fetchCountrySample } from '../services/siteService';
 import { getCachedSites, cacheSites } from '../utils/offlineCache';
+
+const SAVED_KEY = 'saved_site_ids_v1';
+
+async function loadSavedIds(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(SAVED_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedIds(ids: Set<string>): void {
+  AsyncStorage.setItem(SAVED_KEY, JSON.stringify(Array.from(ids))).catch(() => {});
+}
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
@@ -88,10 +106,11 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
 
   initFromCache: async () => {
     try {
-      const cached = await getCachedSites();
-      if (cached.length > 0) {
-        set((s) => ({ allSites: mergeSites(s.allSites, cached) }));
-      }
+      const [cached, savedIds] = await Promise.all([getCachedSites(), loadSavedIds()]);
+      set((s) => ({
+        allSites: cached.length > 0 ? mergeSites(s.allSites, cached) : s.allSites,
+        savedSiteIds: savedIds.length > 0 ? new Set([...s.savedSiteIds, ...savedIds]) : s.savedSiteIds,
+      }));
     } catch {
       // Non-fatal
     }
@@ -136,6 +155,7 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
       } else {
         next.add(siteId);
       }
+      persistSavedIds(next);
       return { savedSiteIds: next };
     }),
 

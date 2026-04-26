@@ -237,7 +237,7 @@ export default function PlanScreen() {
     const message = formatItinerary(plan);
     try {
       await Share.share({
-        title: `Evin Cairn — ${PERIOD_LABELS[plan.period]} trip`,
+        title: `Evin Cairn — ${periodLabel(plan.period)} trip`,
         message,
       });
     } catch {

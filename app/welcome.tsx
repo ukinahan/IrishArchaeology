@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { PulsingOrbs } from '@/components/PulsingOrbs';
+import { TodayCard } from '@/components/TodayCard';
 import { Period, PERIOD_LABELS, PERIOD_ICONS, PERIOD_COLORS, ArchSite } from '@/data/sites';
 import { useSiteStore } from '@/store/useSiteStore';
 import { searchSites } from '@/services/siteService';
@@ -190,6 +191,9 @@ export default function Index() {
             )}
           </View>
         )}
+
+        {/* On this day in Irish history */}
+        <TodayCard />
 
         {/* Period grid */}
         <Text style={styles.sectionLabel}>Period</Text>

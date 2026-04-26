@@ -10,13 +10,15 @@ import {
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { STORIES, Story } from '@/data/stories';
+import { useContentStore } from '@/store/useContentStore';
+import { RemoteStory } from '@/data/content';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 
 export default function StoriesScreen() {
   const router = useRouter();
+  const stories = useContentStore((s) => s.stories);
 
-  const renderItem: ListRenderItem<Story> = ({ item }) => (
+  const renderItem: ListRenderItem<RemoteStory> = ({ item }) => (
     <TouchableOpacity
       style={styles.card}
       onPress={() => router.push(`/story/${item.id}`)}
@@ -48,7 +50,7 @@ export default function StoriesScreen() {
         <Text style={styles.headerSub}>Ireland's deep past, in plain English</Text>
       </View>
       <FlatList
-        data={STORIES}
+        data={stories}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}

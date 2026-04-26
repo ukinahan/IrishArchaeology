@@ -6,20 +6,21 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { STORIES } from '@/data/stories';
+import { useContentStore } from '@/store/useContentStore';
 import { COLORS, FONTS, RADII } from '@/utils/theme';
 import { useSiteStore } from '@/store/useSiteStore';
 import { PeriodBadge } from '@/components/PeriodBadge';
+import { AudioButton } from '@/components/AudioButton';
 import { ArchSite } from '@/data/sites';
-import { useRouter as useNav } from 'expo-router';
 
 export default function StoryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const story = STORIES.find((s) => s.id === id);
+  const story = useContentStore((s) => s.stories.find((st) => st.id === id));
   const allSites = useSiteStore((s) => s.allSites);
 
   if (!story) {
@@ -66,6 +67,16 @@ export default function StoryScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
+        {/* Optional hero image (CDN-hosted, set in remote manifest) */}
+        {story.imageUrl ? (
+          <Image
+            source={{ uri: story.imageUrl }}
+            style={styles.hero}
+            resizeMode="cover"
+            accessibilityLabel={`Photo for ${story.title}`}
+          />
+        ) : null}
+
         {/* Meta */}
         <Text style={styles.period}>{story.period}</Text>
         <Text style={styles.emoji}>{story.imageEmoji}</Text>
@@ -77,6 +88,12 @@ export default function StoryScreen() {
           <Ionicons name="time-outline" size={14} color={COLORS.stoneLight} />
           <Text style={styles.readTime}>{story.readTimeMinutes} min read</Text>
         </View>
+
+        {story.audioUrl ? (
+          <View style={{ marginTop: 8 }}>
+            <AudioButton url={story.audioUrl} label="Listen" />
+          </View>
+        ) : null}
 
         <View style={styles.divider} />
 
@@ -157,6 +174,13 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   emoji: { fontSize: 48, marginVertical: 4 },
+  hero: {
+    width: '100%',
+    height: 200,
+    borderRadius: RADII.md,
+    backgroundColor: COLORS.forestMid,
+    marginBottom: 8,
+  },
   title: {
     fontSize: FONTS.sizes.xxxl,
     fontWeight: '800',

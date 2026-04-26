@@ -22,7 +22,9 @@ import { PeriodBadge } from './PeriodBadge';
 import { TimelineBar } from './TimelineBar';
 import { AccessBadge } from './AccessBadge';
 import { useSiteStore } from '../store/useSiteStore';
+import { useContentStore } from '../store/useContentStore';
 import { fetchSitePhoto, SitePhoto } from '../services/wikimediaService';
+import { AudioButton } from './AudioButton';
 
 // Feature flag — flip to false to disable Wikimedia photo lookup instantly.
 const ENABLE_WIKIMEDIA_PHOTOS = true;
@@ -31,8 +33,24 @@ interface Props {
   site: ArchSite;
 }
 
-export function SiteCard({ site }: Props) {
+export function SiteCard({ site: rawSite }: Props) {
   const router = useRouter();
+  // Merge any enrichment overlay we have for this SMR id / entity id. Remote
+  // content (loaded by the content store) wins over the live NMS attributes;
+  // unset fields fall through to the raw NMS record.
+  const enrichment = useContentStore((s) => s.getEnrichment(rawSite.id, rawSite.smrRef));
+  const site: ArchSite = enrichment
+    ? {
+        ...rawSite,
+        irishName: enrichment.irishName ?? rawSite.irishName,
+        whatItIs: enrichment.whatItIs ?? rawSite.whatItIs,
+        whyItMatters: enrichment.whyItMatters ?? rawSite.whyItMatters,
+        whatToLookFor: enrichment.whatToLookFor ?? rawSite.whatToLookFor,
+        whenUsed: enrichment.whenUsed ?? rawSite.whenUsed,
+        period: enrichment.period ?? rawSite.period,
+      }
+    : rawSite;
+  const audioUrl = enrichment?.audioUrl;
   const isSaved = useSiteStore((s) => s.isSaved(site.id));
   const toggleSaved = useSiteStore((s) => s.toggleSaved);
 
@@ -127,6 +145,11 @@ export function SiteCard({ site }: Props) {
           <Text style={styles.type}>{site.type}</Text>
           <Text style={styles.name}>{site.name}</Text>
           {site.irishName && <Text style={styles.irishName}>{site.irishName}</Text>}
+          {audioUrl ? (
+            <View style={{ marginTop: 12 }}>
+              <AudioButton url={audioUrl} label="Listen to narration" />
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.divider} />

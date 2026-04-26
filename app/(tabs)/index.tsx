@@ -2,7 +2,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Modal, FlatList, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import Mapbox, { MapView, Camera, ShapeSource, CircleLayer, UserLocation } from '@rnmapbox/maps';
+import Mapbox, { MapView, Camera, ShapeSource, CircleLayer, SymbolLayer, UserLocation } from '@rnmapbox/maps';
 import Constants from 'expo-constants';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -113,6 +113,9 @@ export default function NearbyScreen() {
   const [countyPickerOpen, setCountyPickerOpen] = useState(false);
   const [countyLoading, setCountyLoading] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  // Map basemap toggle. SatelliteStreet is the marquee look; Outdoors gives
+  // a hill-shaded vector style that's far better for reading the landscape.
+  const [mapStyle, setMapStyle] = useState<'satellite' | 'outdoors'>('satellite');
   const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
   const bboxFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitialCountyFocus = useRef(false);
@@ -519,7 +522,11 @@ export default function NearbyScreen() {
           <MapView
             ref={mapRef}
             style={styles.map}
-            styleURL={Mapbox.StyleURL.SatelliteStreet}
+            styleURL={
+              mapStyle === 'satellite'
+                ? Mapbox.StyleURL.SatelliteStreet
+                : Mapbox.StyleURL.Outdoors
+            }
             scaleBarEnabled={false}
             logoEnabled={true}
             attributionEnabled={true}
@@ -539,14 +546,76 @@ export default function NearbyScreen() {
               <ShapeSource
                 id="sites-source"
                 shape={sitesFeatureCollection}
+                cluster
+                clusterRadius={50}
+                clusterMaxZoomLevel={14}
                 onPress={(e) => {
                   const f = e.features?.[0];
-                  const id = (f?.properties as any)?.id;
+                  const props = (f?.properties as any) ?? {};
+                  // Cluster tap: zoom in by 2 levels toward the cluster.
+                  if (props.cluster) {
+                    const coords =
+                      (f?.geometry as any)?.coordinates as [number, number] | undefined;
+                    if (coords) {
+                      cameraRef.current?.setCamera({
+                        centerCoordinate: coords,
+                        zoomLevel: Math.min(
+                          ((typeof visibleRegion?.latitudeDelta === 'number'
+                            ? deltaToZoom(visibleRegion.latitudeDelta)
+                            : 11) + 2),
+                          16,
+                        ),
+                        animationDuration: 450,
+                      });
+                    }
+                    return;
+                  }
+                  const id = props.id;
                   if (id) handleSitePress(String(id));
                 }}
               >
+                {/* Cluster bubbles */}
+                <CircleLayer
+                  id="sites-clusters"
+                  filter={['has', 'point_count']}
+                  style={{
+                    circleColor: [
+                      'step',
+                      ['get', 'point_count'],
+                      '#c8a84b', // <25
+                      25, '#cd7f32',
+                      100, '#a85a3a',
+                      500, '#7a3a3a',
+                    ],
+                    circleRadius: [
+                      'step',
+                      ['get', 'point_count'],
+                      14,
+                      25, 18,
+                      100, 22,
+                      500, 28,
+                    ],
+                    circleStrokeColor: '#ffffff',
+                    circleStrokeWidth: 2,
+                    circleOpacity: 0.92,
+                  }}
+                />
+                <SymbolLayer
+                  id="sites-cluster-count"
+                  filter={['has', 'point_count']}
+                  style={{
+                    textField: ['get', 'point_count_abbreviated'],
+                    textSize: 12,
+                    textColor: '#ffffff',
+                    textHaloColor: 'rgba(0,0,0,0.45)',
+                    textHaloWidth: 1,
+                    textAllowOverlap: true,
+                  }}
+                />
+                {/* Individual points (non-clustered) */}
                 <CircleLayer
                   id="sites-circles"
+                  filter={['!', ['has', 'point_count']]}
                   style={{
                     circleRadius: [
                       'interpolate',
@@ -623,6 +692,21 @@ export default function NearbyScreen() {
           <Ionicons name="locate" size={22} color={COLORS.forestDark} />
         </TouchableOpacity>
       )}
+
+      {/* Basemap toggle FAB */}
+      <TouchableOpacity
+        style={styles.fabStyle}
+        onPress={() => setMapStyle((s) => (s === 'satellite' ? 'outdoors' : 'satellite'))}
+        accessibilityLabel={
+          mapStyle === 'satellite' ? 'Switch to outdoor map' : 'Switch to satellite map'
+        }
+      >
+        <Ionicons
+          name={mapStyle === 'satellite' ? 'map' : 'globe'}
+          size={20}
+          color={COLORS.forestDark}
+        />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -843,6 +927,18 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: RADII.full,
     backgroundColor: COLORS.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.card,
+  },
+  fabStyle: {
+    position: 'absolute',
+    bottom: 84,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: RADII.full,
+    backgroundColor: COLORS.parchment,
     alignItems: 'center',
     justifyContent: 'center',
     ...SHADOWS.card,

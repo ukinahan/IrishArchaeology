@@ -239,8 +239,12 @@ export async function fetchCountrySample(perCounty: number = 80): Promise<ArchSi
 export async function searchSites(query: string, limit: number = 25): Promise<ArchSite[]> {
   const q = query.trim();
   if (q.length < 2) return [];
-  // Escape single quotes for ArcGIS WHERE.
-  const safe = q.replace(/'/g, "''").toUpperCase();
+  // Strip control chars + cap length to keep the WHERE clause bounded. Also
+  // remove % and _ which would otherwise act as wildcards a user can't see,
+  // and escape single quotes for ArcGIS.
+  const cleaned = q.replace(/[\u0000-\u001F\u007F%_]/g, '').slice(0, 60);
+  if (cleaned.length < 2) return [];
+  const safe = cleaned.replace(/'/g, "''").toUpperCase();
   const where =
     `(UPPER(TOWNLAND) LIKE '%${safe}%' OR UPPER(MONUMENT_CLASS) LIKE '%${safe}%')` +
     ` AND MONUMENT_CLASS <> 'Redundant record'`;
@@ -249,7 +253,7 @@ export async function searchSites(query: string, limit: number = 25): Promise<Ar
     outFields: OUT_FIELDS,
     outSR: '4326',
     returnGeometry: 'false',
-    resultRecordCount: String(limit),
+    resultRecordCount: String(Math.min(Math.max(1, limit), 50)),
     orderByFields: 'TOWNLAND ASC',
     f: 'json',
   });
