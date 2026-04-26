@@ -23,6 +23,13 @@ module.exports = ({ config }) => {
       process.env.MAPBOX_PUBLIC_TOKEN ||
       expo.extra?.MAPBOX_ACCESS_TOKEN ||
       '',
+    SENTRY_DSN: process.env.SENTRY_DSN || expo.extra?.SENTRY_DSN || '',
+    POSTHOG_API_KEY: process.env.POSTHOG_API_KEY || expo.extra?.POSTHOG_API_KEY || '',
+    POSTHOG_HOST: process.env.POSTHOG_HOST || expo.extra?.POSTHOG_HOST || 'https://us.i.posthog.com',
+    CONTENT_BASE_URL:
+      process.env.CONTENT_BASE_URL ||
+      expo.extra?.CONTENT_BASE_URL ||
+      'https://ukinahan.github.io/IrishArchaeology',
   };
 
   return expo;

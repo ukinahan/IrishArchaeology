@@ -28,6 +28,13 @@ import { PeriodFilterBar } from '@/components/PeriodFilterBar';
 import { PulsingOrbs } from '@/components/PulsingOrbs';
 import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
+import { Alert } from 'react-native';
+import {
+  downloadIrelandPack,
+  deleteIrelandPack,
+  getIrelandPackStatus,
+} from '@/services/offlineMap';
+import { track } from '@/utils/telemetry';
 
 // Cap markers rendered on the map for performance. With Mapbox's GL-rendered
 // CircleLayer this could be much higher, but capping keeps the per-feature
@@ -116,6 +123,66 @@ export default function NearbyScreen() {
   // Map basemap toggle. SatelliteStreet is the marquee look; Outdoors gives
   // a hill-shaded vector style that's far better for reading the landscape.
   const [mapStyle, setMapStyle] = useState<'satellite' | 'outdoors'>('satellite');
+  // Offline basemap pack state.
+  const [offlinePct, setOfflinePct] = useState<number | null>(null); // null = idle, 0-100 = downloading, 100 = complete
+  const [offlineHasPack, setOfflineHasPack] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    getIrelandPackStatus().then((s) => {
+      if (!mounted) return;
+      if (s && s.state === 'complete') {
+        setOfflineHasPack(true);
+        setOfflinePct(100);
+      }
+    });
+    return () => { mounted = false; };
+  }, []);
+  const handleOfflinePress = useCallback(() => {
+    if (offlineHasPack) {
+      Alert.alert(
+        'Offline map ready',
+        'The Ireland overview map is downloaded for offline use. Delete it to free up disk space?',
+        [
+          { text: 'Keep', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              await deleteIrelandPack();
+              track('offline_pack_deleted');
+              setOfflineHasPack(false);
+              setOfflinePct(null);
+            },
+          },
+        ],
+      );
+      return;
+    }
+    if (offlinePct !== null && offlinePct < 100) return; // already downloading
+    Alert.alert(
+      'Download offline map?',
+      'Caches the Ireland overview map (zoom 6-11, ~50-150 MB) so you can browse sites without a signal. You can delete it any time.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Download',
+          onPress: async () => {
+            track('offline_pack_started');
+            setOfflinePct(0);
+            try {
+              await downloadIrelandPack((pct) => setOfflinePct(Math.round(pct)));
+              setOfflineHasPack(true);
+              setOfflinePct(100);
+              track('offline_pack_completed');
+            } catch (err) {
+              setOfflinePct(null);
+              Alert.alert('Download failed', 'Could not download the offline map. Check your connection and try again.');
+            }
+          },
+        },
+      ],
+    );
+  }, [offlineHasPack, offlinePct]);
   const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
   const bboxFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitialCountyFocus = useRef(false);
@@ -707,6 +774,29 @@ export default function NearbyScreen() {
           color={COLORS.forestDark}
         />
       </TouchableOpacity>
+
+      {/* Offline pack FAB */}
+      <TouchableOpacity
+        style={styles.fabOffline}
+        onPress={handleOfflinePress}
+        accessibilityLabel={
+          offlineHasPack
+            ? 'Offline map downloaded'
+            : offlinePct !== null && offlinePct < 100
+            ? `Downloading offline map ${offlinePct}%`
+            : 'Download offline map'
+        }
+      >
+        {offlinePct !== null && offlinePct < 100 ? (
+          <Text style={styles.fabOfflineText}>{offlinePct}%</Text>
+        ) : (
+          <Ionicons
+            name={offlineHasPack ? 'cloud-done' : 'cloud-download'}
+            size={20}
+            color={offlineHasPack ? COLORS.forestDark : COLORS.forestDark}
+          />
+        )}
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -942,5 +1032,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     ...SHADOWS.card,
+  },
+  fabOffline: {
+    position: 'absolute',
+    bottom: 136,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: RADII.full,
+    backgroundColor: COLORS.parchment,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.card,
+  },
+  fabOfflineText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.forestDark,
   },
 });
