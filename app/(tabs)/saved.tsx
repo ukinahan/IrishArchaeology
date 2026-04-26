@@ -14,6 +14,9 @@ import { useSiteStore } from '@/store/useSiteStore';
 import { ArchSite, PERIOD_COLORS, PERIOD_ICONS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 import { PeriodBadge } from '@/components/PeriodBadge';
+import { EmptyState } from '@/components/EmptyState';
+import { t } from '@/utils/i18n';
+import { tapLight } from '@/utils/haptics';
 
 export default function SavedScreen() {
   const router = useRouter();
@@ -40,10 +43,11 @@ export default function SavedScreen() {
           <Text style={styles.type}>{item.type}</Text>
         </View>
         <TouchableOpacity
-          onPress={() => toggleSaved(item.id)}
+          onPress={() => { tapLight(); toggleSaved(item.id); }}
           style={styles.unsaveBtn}
-          accessibilityLabel={`Remove ${item.name} from saved`}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel={`${t('a11y.unsave')}: ${item.name}`}
+          accessibilityRole="button"
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <Ionicons name="bookmark" size={20} color={COLORS.gold} />
         </TouchableOpacity>
@@ -59,14 +63,11 @@ export default function SavedScreen() {
       </View>
 
       {savedSites.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyIcon}>🗺️</Text>
-          <Text style={styles.emptyTitle}>No saved sites yet</Text>
-          <Text style={styles.emptyText}>
-            Tap the bookmark icon on any site to save it here. Great for planning visits or
-            remembering "your" places.
-          </Text>
-        </View>
+        <EmptyState
+          icon="bookmark-outline"
+          title={t('empty.saved.title')}
+          body={t('empty.saved.body')}
+        />
       ) : (
         <FlatList
           data={savedSites}

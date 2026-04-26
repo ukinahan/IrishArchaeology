@@ -25,6 +25,8 @@ import { useSiteStore } from '../store/useSiteStore';
 import { useContentStore } from '../store/useContentStore';
 import { fetchSitePhoto, SitePhoto } from '../services/wikimediaService';
 import { AudioButton } from './AudioButton';
+import { tapLight, notifySuccess } from '../utils/haptics';
+import { t } from '../utils/i18n';
 
 // Feature flag — flip to false to disable Wikimedia photo lookup instantly.
 const ENABLE_WIKIMEDIA_PHOTOS = true;
@@ -93,9 +95,14 @@ export function SiteCard({ site: rawSite }: Props) {
         </TouchableOpacity>
         <View style={styles.headerActions}>
           <TouchableOpacity
-            onPress={() => toggleSaved(site.id)}
+            onPress={() => {
+              if (isSaved) tapLight(); else notifySuccess();
+              toggleSaved(site.id);
+            }}
             style={styles.headerBtn}
-            accessibilityLabel={isSaved ? 'Remove from saved' : 'Save site'}
+            accessibilityRole="button"
+            accessibilityLabel={isSaved ? t('a11y.unsave') : t('a11y.save')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Ionicons
               name={isSaved ? 'bookmark' : 'bookmark-outline'}

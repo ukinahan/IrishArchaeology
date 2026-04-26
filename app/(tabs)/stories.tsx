@@ -13,6 +13,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useContentStore } from '@/store/useContentStore';
 import { RemoteStory } from '@/data/content';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
+import { EmptyState } from '@/components/EmptyState';
+import { t } from '@/utils/i18n';
 
 export default function StoriesScreen() {
   const router = useRouter();
@@ -49,13 +51,21 @@ export default function StoriesScreen() {
         <Text style={styles.headerTitle}>Stories</Text>
         <Text style={styles.headerSub}>Ireland's deep past, in plain English</Text>
       </View>
-      <FlatList
-        data={stories}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-      />
+      {stories.length === 0 ? (
+        <EmptyState
+          icon="book-outline"
+          title={t('empty.stories.title')}
+          body={t('empty.stories.body')}
+        />
+      ) : (
+        <FlatList
+          data={stories}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
     </SafeAreaView>
   );
 }

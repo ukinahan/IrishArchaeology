@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { Platform } from 'react-native';
 import { TabBarIcon } from '@/components/TabBarIcon';
 import { COLORS } from '@/utils/theme';
+import { t } from '@/utils/i18n';
 
 export default function TabLayout() {
   return (
@@ -25,7 +26,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Explorer',
+          title: t('tab.map'),
           tabBarIcon: ({ color, focused }) => (
             <TabBarIcon name={focused ? 'map' : 'map-outline'} color={color} />
           ),
@@ -34,7 +35,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'What Is This?',
+          title: t('tab.explore'),
           tabBarIcon: ({ color, focused }) => (
             <TabBarIcon name={focused ? 'eye' : 'eye-outline'} color={color} />
           ),
@@ -43,7 +44,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="plan"
         options={{
-          title: 'Plan',
+          title: t('tab.plan'),
           tabBarIcon: ({ color, focused }) => (
             <TabBarIcon name={focused ? 'compass' : 'compass-outline'} color={color} />
           ),
@@ -52,7 +53,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="stories"
         options={{
-          title: 'Stories',
+          title: t('tab.stories'),
           tabBarIcon: ({ color, focused }) => (
             <TabBarIcon name={focused ? 'book' : 'book-outline'} color={color} />
           ),
@@ -61,7 +62,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="saved"
         options={{
-          title: 'Saved',
+          title: t('tab.saved'),
           tabBarIcon: ({ color, focused }) => (
             <TabBarIcon name={focused ? 'bookmark' : 'bookmark-outline'} color={color} />
           ),
