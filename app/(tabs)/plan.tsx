@@ -1,5 +1,5 @@
 // app/(tabs)/plan.tsx — Trip Planner wizard + results
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Alert,
   Modal,
   FlatList,
   Pressable,
@@ -32,9 +33,13 @@ import {
   SuggestedTheme,
   StartPoint,
 } from '@/utils/tripPlanner';
+import { buildGoogleDirectionsUrl, buildItineraryIcs, formatMins } from '@/utils/tripExport';
+import { usePlansStore, SavedPlan } from '@/store/usePlansStore';
 import { geocodePlace } from '@/services/geocodeService';
 import { useLocation } from '@/hooks/useLocation';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
+import { tapLight, notifySuccess } from '@/utils/haptics';
+import { track } from '@/utils/telemetry';
 
 const ALL_PERIODS: Period[] = [
   'stone_age', 'bronze_age', 'iron_age', 'early_christian',
@@ -94,6 +99,11 @@ export default function PlanScreen() {
   // end. The user can flip the switch to enter a different end point.
   const [endInput, setEndInput] = useState<string>('');
   const [endsAtStart, setEndsAtStart] = useState<boolean>(true);
+
+  // Saved plans
+  const { plans: savedPlans, hydrate: hydratePlans, savePlan, deletePlan } = usePlansStore();
+  const [savedOpen, setSavedOpen] = useState(false);
+  useEffect(() => { hydratePlans(); }, [hydratePlans]);
 
   const canBuild = period !== null;
 
@@ -234,16 +244,81 @@ export default function PlanScreen() {
 
   const handleShare = useCallback(async () => {
     if (!plan) return;
+    tapLight();
     const message = formatItinerary(plan);
     try {
       await Share.share({
         title: `Evin Cairn — ${periodLabel(plan.period)} trip`,
         message,
       });
+      track('plan_shared', { days: plan.days.length, sites: plan.totalSites });
     } catch {
       // User cancelled or share unavailable; nothing to do
     }
   }, [plan]);
+
+  const handleSave = useCallback(() => {
+    if (!plan) return;
+    const defaultName = plan.themeKey
+      ? SUGGESTED_THEMES.find((t) => t.key === plan.themeKey)?.label ?? 'My trip'
+      : `${periodLabel(plan.period)}${plan.county ? ` · Co. ${plan.county}` : ''}`;
+    Alert.prompt(
+      'Save trip',
+      'Give this plan a name so you can come back to it later.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: async (value?: string) => {
+            const saved = await savePlan(value || defaultName, plan);
+            notifySuccess();
+            track('plan_saved', { id: saved.id, days: plan.days.length });
+          },
+        },
+      ],
+      'plain-text',
+      defaultName,
+    );
+  }, [plan, savePlan]);
+
+  const handleExportIcs = useCallback(async () => {
+    if (!plan) return;
+    tapLight();
+    try {
+      const FileSystem = await import('expo-file-system');
+      const Sharing = await import('expo-sharing');
+      const ics = buildItineraryIcs(plan);
+      // expo-file-system v19 still exposes documentDirectory + writeAsStringAsync
+      const dir = (FileSystem as any).documentDirectory ?? (FileSystem as any).cacheDirectory;
+      if (!dir) throw new Error('No filesystem available');
+      const uri = `${dir}irish-archaeology-trip.ics`;
+      await (FileSystem as any).writeAsStringAsync(uri, ics, { encoding: 'utf8' });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: 'text/calendar', UTI: 'com.apple.ical.ics' });
+        track('plan_exported_ics', { days: plan.days.length });
+      } else {
+        Alert.alert('Export', 'Calendar sharing is not available on this device.');
+      }
+    } catch (e) {
+      Alert.alert('Export failed', e instanceof Error ? e.message : 'Could not export calendar file.');
+    }
+  }, [plan]);
+
+  const openDayInMaps = useCallback(async (day: TripDay) => {
+    const url = buildGoogleDirectionsUrl(day, plan?.start);
+    if (!url) return;
+    tapLight();
+    track('plan_open_day_route', { day: day.index, stops: day.stops.length });
+    Linking.openURL(url).catch(() => {});
+  }, [plan]);
+
+  const handleLoadSaved = useCallback((sp: SavedPlan) => {
+    setSavedOpen(false);
+    setPlan(sp.plan);
+    setPhase('result');
+    track('plan_loaded_saved', { id: sp.id });
+  }, []);
 
   // ---------- Result view ----------
   if (phase === 'result' && plan) {
@@ -258,11 +333,31 @@ export default function PlanScreen() {
                 {' · '}{plan.days.length} {plan.days.length === 1 ? 'day' : 'days'}
                 {' · '}{plan.totalSites} stops
               </Text>
+              <Text style={styles.headerSub}>
+                ~{plan.totalKm.toFixed(0)} km · Drive {formatMins(plan.totalDriveMinutes)} · Visit {formatMins(plan.totalVisitMinutes)}
+              </Text>
             </View>
+            <TouchableOpacity
+              style={styles.headerActionBtn}
+              onPress={handleSave}
+              accessibilityLabel="Save itinerary"
+              accessibilityRole="button"
+            >
+              <Ionicons name="bookmark-outline" size={18} color={COLORS.forestDark} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerActionBtn}
+              onPress={handleExportIcs}
+              accessibilityLabel="Add itinerary to calendar"
+              accessibilityRole="button"
+            >
+              <Ionicons name="calendar-outline" size={18} color={COLORS.forestDark} />
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.headerActionBtn}
               onPress={handleShare}
               accessibilityLabel="Share itinerary"
+              accessibilityRole="button"
             >
               <Ionicons name="share-outline" size={18} color={COLORS.forestDark} />
             </TouchableOpacity>
@@ -270,6 +365,7 @@ export default function PlanScreen() {
               style={styles.headerActionBtn}
               onPress={handleReset}
               accessibilityLabel="Plan a new trip"
+              accessibilityRole="button"
             >
               <Ionicons name="refresh" size={18} color={COLORS.forestDark} />
             </TouchableOpacity>
@@ -284,6 +380,7 @@ export default function PlanScreen() {
               periodColor={periodColor(plan.period)}
               onOpenMaps={openInMaps}
               onOpenSite={(s) => router.push(`/site/${s.site.id}`)}
+              onOpenDayRoute={() => openDayInMaps(day)}
             />
           ))}
           <Text style={styles.footnote}>
@@ -311,10 +408,24 @@ export default function PlanScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Plan a Trip</Text>
-        <Text style={styles.headerSub}>
-          Pick a period and a place — we'll build a day-by-day route through the highlights.
-        </Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle}>Plan a Trip</Text>
+            <Text style={styles.headerSub}>
+              Pick a period and a place — we'll build a day-by-day route through the highlights.
+            </Text>
+          </View>
+          {savedPlans.length > 0 && (
+            <TouchableOpacity
+              style={styles.headerActionBtn}
+              onPress={() => { tapLight(); setSavedOpen(true); }}
+              accessibilityLabel={`Open saved trips (${savedPlans.length})`}
+              accessibilityRole="button"
+            >
+              <Ionicons name="bookmark" size={18} color={COLORS.forestDark} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.wizardContent} keyboardShouldPersistTaps="handled">
@@ -568,6 +679,52 @@ export default function PlanScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      {/* Saved trips modal */}
+      <Modal visible={savedOpen} transparent animationType="fade" onRequestClose={() => setSavedOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setSavedOpen(false)}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Saved trips</Text>
+              <TouchableOpacity onPress={() => setSavedOpen(false)} hitSlop={12}>
+                <Ionicons name="close" size={22} color={COLORS.stoneLight} />
+              </TouchableOpacity>
+            </View>
+            {savedPlans.length === 0 ? (
+              <Text style={styles.helpText}>No saved trips yet.</Text>
+            ) : (
+              <FlatList
+                data={savedPlans}
+                keyExtractor={(item) => item.id}
+                ItemSeparatorComponent={() => <View style={styles.modalSeparator} />}
+                renderItem={({ item }) => (
+                  <View style={styles.savedRow}>
+                    <Pressable style={{ flex: 1 }} onPress={() => handleLoadSaved(item)}>
+                      <Text style={styles.savedName} numberOfLines={1}>{item.name}</Text>
+                      <Text style={styles.savedMeta} numberOfLines={1}>
+                        {item.plan.days.length}d · {item.plan.totalSites} stops · {item.plan.totalKm.toFixed(0)} km
+                      </Text>
+                    </Pressable>
+                    <TouchableOpacity
+                      hitSlop={12}
+                      onPress={() => {
+                        Alert.alert('Delete trip', `Remove "${item.name}"?`, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Delete', style: 'destructive', onPress: () => deletePlan(item.id) },
+                        ]);
+                      }}
+                      accessibilityLabel={`Delete ${item.name}`}
+                      accessibilityRole="button"
+                    >
+                      <Ionicons name="trash-outline" size={18} color={COLORS.stoneLight} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              />
+            )}
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -592,7 +749,9 @@ function formatItinerary(plan: TripPlan): string {
       const blurb = stop.marquee?.blurb ? `\n     ${stop.marquee.blurb}` : '';
       return `  ${i + 1}. ${name} (Co. ${stop.site.county})${blurb}\n     ${mapsLink}${info}`;
     });
-    return `Day ${day.index + 1} — ${day.stops.length} stops · ~${day.totalKm.toFixed(0)} km\n${lines.join('\n')}`;
+    const route = buildGoogleDirectionsUrl(day, plan.start);
+    const routeLine = route ? `\n  Day route: ${route}` : '';
+    return `Day ${day.index + 1} — ${day.stops.length} stops · ~${day.totalKm.toFixed(0)} km · Drive ${formatMins(day.driveMinutes)}${routeLine}\n${lines.join('\n')}`;
   });
   const footer = '\nPlanned with Evin Cairn — Irish Archaeology';
   return [header, sub, startLine, endLine, '', ...dayBlocks, footer].filter(Boolean).join('\n');
@@ -612,11 +771,13 @@ function DayCard({
   periodColor,
   onOpenMaps,
   onOpenSite,
+  onOpenDayRoute,
 }: {
   day: TripDay;
   periodColor: string;
   onOpenMaps: (s: TripStop) => void;
   onOpenSite: (s: TripStop) => void;
+  onOpenDayRoute: () => void;
 }) {
   return (
     <View style={styles.dayCard}>
@@ -624,9 +785,25 @@ function DayCard({
         <View style={[styles.dayBadge, { backgroundColor: periodColor }]}>
           <Text style={styles.dayBadgeText}>Day {day.index + 1}</Text>
         </View>
-        <Text style={styles.dayMeta}>
-          {day.stops.length} stops · {day.totalKm.toFixed(0)} km
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.dayMeta}>
+            {day.stops.length} stops · {day.totalKm.toFixed(0)} km
+          </Text>
+          <Text style={styles.dayMeta}>
+            Drive {formatMins(day.driveMinutes)} · Visit {formatMins(day.visitMinutes)}
+          </Text>
+        </View>
+        {day.stops.length > 0 && (
+          <TouchableOpacity
+            style={styles.dayRouteBtn}
+            onPress={onOpenDayRoute}
+            accessibilityLabel={`Open Day ${day.index + 1} route in Google Maps`}
+            accessibilityRole="button"
+          >
+            <Ionicons name="map-outline" size={14} color={COLORS.forestDark} />
+            <Text style={styles.dayRouteBtnText}>Route</Text>
+          </TouchableOpacity>
+        )}
       </View>
       {day.stops.map((stop, i) => (
         <View key={stop.site.id}>
@@ -814,6 +991,27 @@ const styles = StyleSheet.create({
   modalItemActive: { backgroundColor: COLORS.gold },
   modalItemText: { color: COLORS.parchment, fontSize: FONTS.sizes.md },
   modalItemTextActive: { color: COLORS.forestDark, fontWeight: '700' },
+  modalSeparator: {
+    height: 1,
+    backgroundColor: COLORS.forestMid,
+  },
+  savedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    gap: 12,
+  },
+  savedName: {
+    color: COLORS.parchment,
+    fontSize: FONTS.sizes.md,
+    fontWeight: '700',
+  },
+  savedMeta: {
+    color: COLORS.stoneLight,
+    fontSize: FONTS.sizes.xs,
+    marginTop: 2,
+  },
 
   // Result
   resultList: { padding: 16, paddingBottom: 40, gap: 16 },
@@ -838,6 +1036,20 @@ const styles = StyleSheet.create({
   },
   dayBadgeText: { color: '#fff', fontWeight: '800', fontSize: FONTS.sizes.sm },
   dayMeta: { color: COLORS.stoneLight, fontSize: FONTS.sizes.xs, fontWeight: '600' },
+  dayRouteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: RADII.full,
+    backgroundColor: COLORS.gold,
+  },
+  dayRouteBtnText: {
+    color: COLORS.forestDark,
+    fontSize: FONTS.sizes.xs,
+    fontWeight: '800',
+  },
   legLine: {
     height: 16,
     width: 2,

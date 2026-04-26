@@ -26,6 +26,8 @@ export interface TripDay {
   index: number;            // 0-based day index
   stops: TripStop[];
   totalKm: number;          // sum of leg distances (great-circle)
+  driveMinutes: number;     // estimated driving time (km / 50 km/h average)
+  visitMinutes: number;     // estimated visit time (~60 min/stop, 90 min for marquee)
 }
 
 export type PlannerPeriod = Period | 'all' | 'suggested';
@@ -45,6 +47,22 @@ export interface TripPlan {
   days: TripDay[];
   totalSites: number;
   totalKm: number;
+  totalDriveMinutes: number;
+  totalVisitMinutes: number;
+}
+
+/**
+ * Heuristic average door-to-door speed for Ireland: 50 km/h. Realistic for
+ * a mix of motorway, R-roads and the inevitable single-track lane to a
+ * ringfort. Inflate by 20 % for great-circle vs road distance.
+ */
+const KMH = 50;
+const ROAD_FACTOR = 1.2;
+export function estimateDriveMinutes(km: number): number {
+  return Math.round((km * ROAD_FACTOR) / KMH * 60);
+}
+export function estimateVisitMinutes(stops: TripStop[]): number {
+  return stops.reduce((sum, s) => sum + (s.marquee ? 90 : 60), 0);
 }
 
 /**
@@ -609,11 +627,15 @@ export function planTrip({ sites, period, county, days, themeKey, start, end }: 
     const startAnchor = i === 0 && start ? start : null;
     const endAnchor = i === lastDayIndex && end ? end : null;
     const { ordered, totalKm } = orderStops(cluster, startAnchor, endAnchor);
-    return { index: i, stops: ordered, totalKm };
+    const driveMinutes = estimateDriveMinutes(totalKm);
+    const visitMinutes = estimateVisitMinutes(ordered);
+    return { index: i, stops: ordered, totalKm, driveMinutes, visitMinutes };
   });
 
   const totalSites = tripDays.reduce((s, d) => s + d.stops.length, 0);
   const totalKm = tripDays.reduce((s, d) => s + d.totalKm, 0);
+  const totalDriveMinutes = tripDays.reduce((s, d) => s + d.driveMinutes, 0);
+  const totalVisitMinutes = tripDays.reduce((s, d) => s + d.visitMinutes, 0);
 
   return {
     period,
@@ -624,5 +646,7 @@ export function planTrip({ sites, period, county, days, themeKey, start, end }: 
     days: tripDays,
     totalSites,
     totalKm,
+    totalDriveMinutes,
+    totalVisitMinutes,
   };
 }
