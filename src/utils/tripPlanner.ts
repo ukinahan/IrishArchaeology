@@ -49,6 +49,10 @@ export interface TripPlan {
   totalKm: number;
   totalDriveMinutes: number;
   totalVisitMinutes: number;
+  /** Stops that were trimmed from days that exceeded MAX_DAY_KM / MAX_DAY_STOPS. */
+  trimmedStops?: number;
+  /** True when at least one day still exceeds MAX_DAY_KM after trimming, or when stops were trimmed. */
+  overAmbitious?: boolean;
 }
 
 /**
@@ -158,6 +162,15 @@ export function findTheme(key: string | null | undefined): SuggestedTheme | unde
 }
 
 const STOPS_PER_DAY = 4;
+
+/**
+ * Per-day caps. Ireland is small but the planner can still happily produce
+ * a Cork↔Donegal day if the input set is country-wide. These caps keep a
+ * day realistic for a road-trip — anything over ~250 km of straight-line
+ * driving is a 5-6 hour slog before you've even stopped to look at a stone.
+ */
+export const MAX_DAY_KM = 250;
+export const MAX_DAY_STOPS = 6;
 
 // Monument classes that historically draw visitors. Bonus added to score
 // when the NMS MONUMENT_CLASS contains any of these substrings.
@@ -620,13 +633,41 @@ export function planTrip({ sites, period, county, days, themeKey, start, end }: 
   }
 
   const lastDayIndex = orderedClusters.length - 1;
+  let trimmedStops = 0;
   const tripDays: TripDay[] = orderedClusters.map((cluster, i) => {
     // Day 1 anchors at the start point; the last day anchors at the end
     // point (if given) so the final stop lands closest to the user's
     // destination. Intermediate days fall back to the centroid heuristic.
     const startAnchor = i === 0 && start ? start : null;
     const endAnchor = i === lastDayIndex && end ? end : null;
-    const { ordered, totalKm } = orderStops(cluster, startAnchor, endAnchor);
+    let ordered: TripStop[];
+    let totalKm: number;
+    ({ ordered, totalKm } = orderStops(cluster, startAnchor, endAnchor));
+
+    // Enforce per-day caps. We drop the stop that contributes the longest
+    // single leg (with anchors when present) and re-route, repeating until
+    // we're under MAX_DAY_KM and MAX_DAY_STOPS or only one stop remains.
+    while (
+      ordered.length > 1 &&
+      (ordered.length > MAX_DAY_STOPS || totalKm > MAX_DAY_KM)
+    ) {
+      // Find the stop whose removal reduces totalKm the most.
+      let bestIdx = -1;
+      let bestKm = totalKm;
+      for (let k = 0; k < ordered.length; k++) {
+        const trial = ordered.slice(0, k).concat(ordered.slice(k + 1));
+        const { totalKm: trialKm } = orderStops(trial, startAnchor, endAnchor);
+        if (trialKm < bestKm) {
+          bestKm = trialKm;
+          bestIdx = k;
+        }
+      }
+      if (bestIdx === -1) break; // nothing improved — safety
+      ordered = ordered.slice(0, bestIdx).concat(ordered.slice(bestIdx + 1));
+      totalKm = bestKm;
+      trimmedStops++;
+    }
+
     const driveMinutes = estimateDriveMinutes(totalKm);
     const visitMinutes = estimateVisitMinutes(ordered);
     return { index: i, stops: ordered, totalKm, driveMinutes, visitMinutes };
@@ -636,6 +677,8 @@ export function planTrip({ sites, period, county, days, themeKey, start, end }: 
   const totalKm = tripDays.reduce((s, d) => s + d.totalKm, 0);
   const totalDriveMinutes = tripDays.reduce((s, d) => s + d.driveMinutes, 0);
   const totalVisitMinutes = tripDays.reduce((s, d) => s + d.visitMinutes, 0);
+  const overAmbitious =
+    trimmedStops > 0 || tripDays.some((d) => d.totalKm > MAX_DAY_KM);
 
   return {
     period,
@@ -648,5 +691,7 @@ export function planTrip({ sites, period, county, days, themeKey, start, end }: 
     totalKm,
     totalDriveMinutes,
     totalVisitMinutes,
+    trimmedStops: trimmedStops > 0 ? trimmedStops : undefined,
+    overAmbitious: overAmbitious || undefined,
   };
 }

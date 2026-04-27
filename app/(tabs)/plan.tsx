@@ -370,6 +370,17 @@ export default function PlanScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.resultList}>
+          {plan.overAmbitious && (
+            <View style={styles.warnBanner} accessibilityRole="alert">
+              <Ionicons name="warning-outline" size={18} color={COLORS.forestDark} />
+              <Text style={styles.warnText}>
+                {plan.trimmedStops
+                  ? `This trip is ambitious — we trimmed ${plan.trimmedStops} stop${plan.trimmedStops === 1 ? '' : 's'} to keep each day under ~250 km.`
+                  : `Some days exceed ~250 km of driving.`}{' '}
+                Try adding a day or narrowing the county for a more relaxed pace.
+              </Text>
+            </View>
+          )}
           {plan.days.map((day) => (
             <DayCard
               key={day.index}
@@ -1140,5 +1151,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  warnBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#fff4d6',
+    borderColor: '#e0b84a',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  warnText: {
+    flex: 1,
+    color: COLORS.forestDark,
+    fontSize: FONTS.sizes.sm,
+    lineHeight: 18,
   },
 });
