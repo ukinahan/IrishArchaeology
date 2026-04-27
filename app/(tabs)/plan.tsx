@@ -198,10 +198,12 @@ export default function PlanScreen() {
     const label = encodeURIComponent(stop.site.name);
 
     // Prefer the Google Maps app, then web Google Maps, then Apple Maps as a
-    // last resort. The native scheme `comgooglemaps://` requires the Google
-    // Maps iOS app to be installed AND the scheme to be declared in
-    // LSApplicationQueriesSchemes (configured in app.json).
-    const googleAppUrl = `comgooglemaps://?q=${label}&center=${lat},${lng}&zoom=15`;
+    // last resort. Always pin by coordinates (with the site name as a label)
+    // — if we use the name as `q=`, Google Maps treats it as a free-text
+    // search and often lands on the wrong site of the same name in another
+    // county.
+    const coordQ = `${lat},${lng}(${label})`;
+    const googleAppUrl = `comgooglemaps://?q=${coordQ}&center=${lat},${lng}&zoom=15`;
     const googleWebUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
     const appleUrl = `http://maps.apple.com/?ll=${lat},${lng}&q=${label}`;
     const androidGeoUrl = `geo:${lat},${lng}?q=${lat},${lng}(${label})`;
@@ -278,14 +280,16 @@ export default function PlanScreen() {
     if (!plan) return;
     tapLight();
     try {
-      const FileSystem = await import('expo-file-system');
+      // expo-file-system v19 moved documentDirectory + writeAsStringAsync to
+      // the /legacy subpath. Use that here — the new File/Paths API would
+      // also work but the legacy surface is the simplest stable path.
+      const FileSystem = await import('expo-file-system/legacy');
       const Sharing = await import('expo-sharing');
       const ics = buildItineraryIcs(plan);
-      // expo-file-system v19 still exposes documentDirectory + writeAsStringAsync
-      const dir = (FileSystem as any).documentDirectory ?? (FileSystem as any).cacheDirectory;
+      const dir = FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
       if (!dir) throw new Error('No filesystem available');
       const uri = `${dir}irish-archaeology-trip.ics`;
-      await (FileSystem as any).writeAsStringAsync(uri, ics, { encoding: 'utf8' });
+      await FileSystem.writeAsStringAsync(uri, ics);
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
         await Sharing.shareAsync(uri, { mimeType: 'text/calendar', UTI: 'com.apple.ical.ics' });
