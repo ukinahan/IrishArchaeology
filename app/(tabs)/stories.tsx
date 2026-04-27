@@ -6,6 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   ListRenderItem,
+  RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +20,8 @@ import { t } from '@/utils/i18n';
 export default function StoriesScreen() {
   const router = useRouter();
   const stories = useContentStore((s) => s.stories);
+  const refreshing = useContentStore((s) => s.refreshing);
+  const refresh = useContentStore((s) => s.refresh);
 
   const renderItem: ListRenderItem<RemoteStory> = ({ item }) => (
     <TouchableOpacity
@@ -64,6 +67,14 @@ export default function StoriesScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refresh}
+              tintColor={COLORS.gold}
+              colors={[COLORS.gold]}
+            />
+          }
         />
       )}
     </SafeAreaView>

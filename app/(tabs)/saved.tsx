@@ -58,8 +58,19 @@ export default function SavedScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Saved</Text>
-        <Text style={styles.headerSub}>Your personal archaeology near home</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Saved</Text>
+          <Text style={styles.headerSub}>Your personal archaeology near home</Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => { tapLight(); router.push('/settings'); }}
+          accessibilityLabel="Open settings"
+          accessibilityRole="button"
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          style={styles.settingsBtn}
+        >
+          <Ionicons name="settings-outline" size={22} color={COLORS.parchment} />
+        </TouchableOpacity>
       </View>
 
       {savedSites.length === 0 ? (
@@ -84,9 +95,21 @@ export default function SavedScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.forestDark },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
+  },
+  settingsBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1,
+    borderColor: COLORS.forestLight,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: { fontSize: FONTS.sizes.xxl, fontWeight: '800', color: COLORS.parchment },
   headerSub: { fontSize: FONTS.sizes.sm, color: COLORS.stoneLight, marginTop: 2 },

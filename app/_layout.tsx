@@ -4,8 +4,10 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native';
 import { useEffect } from 'react';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ConsentDialog } from '@/components/ConsentDialog';
 import { initTelemetry, track } from '@/utils/telemetry';
 import { useContentStore } from '@/store/useContentStore';
+import { useConsentStore } from '@/store/useConsentStore';
 import * as Sentry from '@sentry/react-native';
 
 Sentry.init({
@@ -25,7 +27,11 @@ Sentry.init({
 export default Sentry.wrap(function RootLayout() {
   useEffect(() => {
     initTelemetry();
-    track('app_open');
+    // Hydrate consent first so any track() calls below the gate are skipped
+    // until the user makes a choice.
+    useConsentStore.getState().hydrate().then(() => {
+      track('app_open');
+    });
     // Kick off remote content load (stories + site enrichments). Non-blocking.
     useContentStore.getState().init().catch(() => {});
   }, []);
@@ -35,6 +41,7 @@ export default Sentry.wrap(function RootLayout() {
       <StatusBar style="light" />
       <ErrorBoundary>
         <Stack screenOptions={{ headerShown: false }} />
+        <ConsentDialog />
       </ErrorBoundary>
     </GestureHandlerRootView>
   );

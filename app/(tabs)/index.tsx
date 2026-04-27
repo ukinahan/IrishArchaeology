@@ -25,6 +25,7 @@ type Region = {
 import { useLocation } from '@/hooks/useLocation';
 import { useSiteStore, getAvailableCounties } from '@/store/useSiteStore';
 import { PeriodFilterBar } from '@/components/PeriodFilterBar';
+import { TimeMachineSlider, periodAtYear } from '@/components/TimeMachineSlider';
 import { PulsingOrbs } from '@/components/PulsingOrbs';
 import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
@@ -58,13 +59,7 @@ const PIN_COLOR: Record<string, string> = {
 
 // All 26 counties of the Republic of Ireland—shown in the picker even before
 // their sites have been loaded.
-const ALL_IRISH_COUNTIES = [
-  'Carlow', 'Cavan', 'Clare', 'Cork', 'Donegal', 'Dublin', 'Galway',
-  'Kerry', 'Kildare', 'Kilkenny', 'Laois', 'Leitrim', 'Limerick',
-  'Longford', 'Louth', 'Mayo', 'Meath', 'Monaghan', 'Offaly',
-  'Roscommon', 'Sligo', 'Tipperary', 'Waterford', 'Westmeath',
-  'Wexford', 'Wicklow',
-];
+import { IRISH_COUNTIES as ALL_IRISH_COUNTIES } from '@/data/counties';
 
 // Approximate geographic centres + zoom deltas for each county. Used as the
 // map's initialRegion when a county is preselected but its sites haven't
@@ -123,6 +118,9 @@ export default function NearbyScreen() {
   // Map basemap toggle. SatelliteStreet is the marquee look; Outdoors gives
   // a hill-shaded vector style that's far better for reading the landscape.
   const [mapStyle, setMapStyle] = useState<'satellite' | 'outdoors'>('satellite');
+  // Time Machine: when not null, overrides activePeriodFilter with the
+  // period that contains the selected year. null = slider is collapsed.
+  const [timeMachineYear, setTimeMachineYear] = useState<number | null>(null);
   // Offline basemap pack state.
   const [offlinePct, setOfflinePct] = useState<number | null>(null); // null = idle, 0-100 = downloading, 100 = complete
   const [offlineHasPack, setOfflineHasPack] = useState(false);
@@ -535,6 +533,18 @@ export default function NearbyScreen() {
       {/* Period filter */}
       <PeriodFilterBar active={activePeriodFilter} onChange={setActivePeriodFilter} />
 
+      {/* Time Machine timeline */}
+      <View style={styles.timeMachineWrap}>
+        <TimeMachineSlider
+          year={timeMachineYear}
+          onYearChange={(y) => {
+            setTimeMachineYear(y);
+            const p = y === null ? null : periodAtYear(y);
+            setActivePeriodFilter(p);
+          }}
+        />
+      </View>
+
       {/* County dropdown */}
       <View style={styles.countyDropdownRow}>
         <Text style={styles.radiusLabel}>County:</Text>
@@ -897,6 +907,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  timeMachineWrap: {
     paddingHorizontal: 16,
     paddingBottom: 8,
   },

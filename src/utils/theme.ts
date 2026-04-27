@@ -11,7 +11,7 @@ export const COLORS = {
 
   // Stone palette
   stone: '#8b7355',
-  stoneLight: '#b0987a',
+  stoneLight: '#cdbaa0', // bumped from #b0987a for WCAG AA contrast (~4.5:1) on bgCard
   stoneDark: '#5a4a32',
 
   // UI

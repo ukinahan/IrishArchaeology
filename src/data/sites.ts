@@ -63,3 +63,21 @@ export const PERIOD_COLORS: Record<Period, string> = {
   medieval: '#1565C0',
   post_medieval: '#6A1B9A',
 };
+
+/**
+ * Approximate calendar-year ranges for each archaeological period in
+ * Ireland. Used by the Time Machine timeline slider to filter sites by year
+ * and to render a continuous timeline. Negative values are BC.
+ */
+export const PERIOD_YEARS: Record<Period, { start: number; end: number }> = {
+  stone_age:       { start: -8000, end: -2500 }, // Mesolithic + Neolithic
+  bronze_age:      { start: -2500, end: -500 },
+  iron_age:        { start: -500,  end: 400 },
+  early_christian: { start: 400,   end: 800 },
+  early_medieval:  { start: 800,   end: 1170 },
+  medieval:        { start: 1170,  end: 1540 },
+  post_medieval:   { start: 1540,  end: 1900 },
+};
+
+export const TIMELINE_MIN_YEAR = -8000;
+export const TIMELINE_MAX_YEAR = 1900;

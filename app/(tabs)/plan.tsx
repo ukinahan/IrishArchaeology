@@ -40,6 +40,7 @@ import { useLocation } from '@/hooks/useLocation';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 import { tapLight, notifySuccess } from '@/utils/haptics';
 import { track } from '@/utils/telemetry';
+import { IRISH_COUNTIES } from '@/data/counties';
 
 const ALL_PERIODS: Period[] = [
   'stone_age', 'bronze_age', 'iron_age', 'early_christian',
@@ -63,14 +64,6 @@ function periodColor(p: PlannerPeriod): string {
   if (p === 'all' || p === 'suggested') return COLORS.gold;
   return PERIOD_COLORS[p];
 }
-
-const IRISH_COUNTIES = [
-  'Carlow', 'Cavan', 'Clare', 'Cork', 'Donegal', 'Dublin', 'Galway',
-  'Kerry', 'Kildare', 'Kilkenny', 'Laois', 'Leitrim', 'Limerick',
-  'Longford', 'Louth', 'Mayo', 'Meath', 'Monaghan', 'Offaly',
-  'Roscommon', 'Sligo', 'Tipperary', 'Waterford', 'Westmeath',
-  'Wexford', 'Wicklow',
-];
 
 const DAY_OPTIONS = [1, 2, 3];
 

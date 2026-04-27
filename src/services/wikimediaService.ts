@@ -186,6 +186,21 @@ export async function fetchSitePhoto(site: ArchSite): Promise<SitePhoto | null> 
   const cached = await readCache(site.id);
   if (cached !== undefined) return cached;
 
+  // In-flight dedupe: if another caller is already fetching this site's
+  // photo, return the same promise instead of firing a duplicate request.
+  const pending = inFlight.get(site.id);
+  if (pending) return pending;
+
+  const promise = doFetchSitePhoto(site).finally(() => {
+    inFlight.delete(site.id);
+  });
+  inFlight.set(site.id, promise);
+  return promise;
+}
+
+const inFlight = new Map<string, Promise<SitePhoto | null>>();
+
+async function doFetchSitePhoto(site: ArchSite): Promise<SitePhoto | null> {
   try {
     const gsUrl =
       `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*` +

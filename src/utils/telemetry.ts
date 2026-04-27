@@ -9,6 +9,7 @@
 //   2) Provide DSN / API key via app.config.js -> extra.SENTRY_DSN /
 //      extra.POSTHOG_API_KEY.
 import Constants from 'expo-constants';
+import { getConsentSnapshot } from '../store/useConsentStore';
 
 type EventProps = Record<string, string | number | boolean | null | undefined>;
 
@@ -53,6 +54,7 @@ export function reportError(err: unknown, context?: EventProps): void {
   // Always log to console so dev builds keep visibility.
   // eslint-disable-next-line no-console
   console.error('[telemetry]', err, context);
+  if (getConsentSnapshot().crash !== 'granted') return;
   if (sentry?.captureException) {
     try {
       sentry.captureException(err, context ? { extra: context } : undefined);
@@ -63,6 +65,11 @@ export function reportError(err: unknown, context?: EventProps): void {
 }
 
 export function track(event: string, props?: EventProps): void {
+  if (__DEV__) {
+    // eslint-disable-next-line no-console
+    console.log('[event]', event, props ?? {});
+  }
+  if (getConsentSnapshot().analytics !== 'granted') return;
   if (posthog?.capture) {
     try {
       posthog.capture(event, props);
@@ -70,13 +77,10 @@ export function track(event: string, props?: EventProps): void {
       /* ignore */
     }
   }
-  if (__DEV__) {
-    // eslint-disable-next-line no-console
-    console.log('[event]', event, props ?? {});
-  }
 }
 
 export function identify(userId: string, traits?: EventProps): void {
+  if (getConsentSnapshot().analytics !== 'granted') return;
   if (posthog?.identify) {
     try {
       posthog.identify(userId, traits);

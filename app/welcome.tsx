@@ -9,18 +9,11 @@ import { Period, PERIOD_LABELS, PERIOD_ICONS, PERIOD_COLORS, ArchSite } from '@/
 import { useSiteStore } from '@/store/useSiteStore';
 import { searchSites } from '@/services/siteService';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
+import { IRISH_COUNTIES } from '@/data/counties';
 
 const ALL_PERIODS: Period[] = [
   'stone_age', 'bronze_age', 'iron_age', 'early_christian',
   'early_medieval', 'medieval', 'post_medieval',
-];
-
-const IRISH_COUNTIES = [
-  'Carlow', 'Cavan', 'Clare', 'Cork', 'Donegal', 'Dublin', 'Galway',
-  'Kerry', 'Kildare', 'Kilkenny', 'Laois', 'Leitrim', 'Limerick',
-  'Longford', 'Louth', 'Mayo', 'Meath', 'Monaghan', 'Offaly',
-  'Roscommon', 'Sligo', 'Tipperary', 'Waterford', 'Westmeath',
-  'Wexford', 'Wicklow',
 ];
 
 type Phase = 'loading' | 'selection' | 'transition';
