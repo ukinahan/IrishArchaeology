@@ -43,7 +43,8 @@ const en: Messages = {
   'empty.location.body': 'Turn on location to see what\'s nearby.',
 
   // Periods (display labels)
-  'period.stone_age': 'Stone Age',
+  'period.mesolithic': 'Mesolithic',
+  'period.neolithic': 'Neolithic',
   'period.bronze_age': 'Bronze Age',
   'period.iron_age': 'Iron Age',
   'period.early_christian': 'Early Christian',
@@ -94,7 +95,8 @@ const ga: Messages = {
   'empty.location.title': 'Suíomh múchta',
   'empty.location.body': 'Cas suíomh ar siúl chun suíomhanna in aice leat a fheiceáil.',
 
-  'period.stone_age': 'An Chlochaois',
+  'period.mesolithic': 'Méisiliteach',
+  'period.neolithic': 'Neoiliteach',
   'period.bronze_age': 'Cré-umhaois',
   'period.iron_age': 'Iarnaois',
   'period.early_christian': 'Luath-Chríostaí',

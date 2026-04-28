@@ -11,7 +11,7 @@ import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 import { tapLight } from '@/utils/haptics';
 
 const PERIOD_ORDER: Period[] = [
-  'stone_age', 'bronze_age', 'iron_age', 'early_christian',
+  'mesolithic', 'neolithic', 'bronze_age', 'iron_age', 'early_christian',
   'early_medieval', 'medieval', 'post_medieval',
 ];
 

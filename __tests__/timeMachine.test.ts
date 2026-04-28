@@ -1,8 +1,8 @@
 import { periodAtYear, formatYear } from '../src/components/TimeMachineSlider';
 
 describe('TimeMachineSlider helpers', () => {
-  test('periodAtYear maps Newgrange era to stone_age', () => {
-    expect(periodAtYear(-3200)).toBe('stone_age');
+  test('periodAtYear maps Newgrange era to neolithic', () => {
+    expect(periodAtYear(-3200)).toBe('neolithic');
   });
   test('periodAtYear maps Iron Age cliff fort era to iron_age', () => {
     expect(periodAtYear(-100)).toBe('iron_age');

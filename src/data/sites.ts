@@ -1,6 +1,7 @@
 // src/data/sites.ts
 export type Period =
-  | 'stone_age'
+  | 'mesolithic'
+  | 'neolithic'
   | 'bronze_age'
   | 'iron_age'
   | 'early_christian'
@@ -35,7 +36,8 @@ export interface ArchSite {
 }
 
 export const PERIOD_LABELS: Record<Period, string> = {
-  stone_age: 'Stone Age',
+  mesolithic: 'Mesolithic',
+  neolithic: 'Neolithic',
   bronze_age: 'Bronze Age',
   iron_age: 'Iron Age',
   early_christian: 'Early Christian',
@@ -45,7 +47,8 @@ export const PERIOD_LABELS: Record<Period, string> = {
 };
 
 export const PERIOD_ICONS: Record<Period, string> = {
-  stone_age: '🪨',
+  mesolithic: '🏹',
+  neolithic: '🪨',
   bronze_age: '🥉',
   iron_age: '⚔️',
   early_christian: '✝️',
@@ -55,7 +58,8 @@ export const PERIOD_ICONS: Record<Period, string> = {
 };
 
 export const PERIOD_COLORS: Record<Period, string> = {
-  stone_age: '#8B4513',
+  mesolithic: '#5D4037',
+  neolithic: '#8B4513',
   bronze_age: '#CD7F32',
   iron_age: '#708090',
   early_christian: '#F57F17',
@@ -70,7 +74,8 @@ export const PERIOD_COLORS: Record<Period, string> = {
  * and to render a continuous timeline. Negative values are BC.
  */
 export const PERIOD_YEARS: Record<Period, { start: number; end: number }> = {
-  stone_age:       { start: -8000, end: -2500 }, // Mesolithic + Neolithic
+  mesolithic:      { start: -8000, end: -4000 }, // Hunter-gatherers, pre-farming
+  neolithic:       { start: -4000, end: -2500 }, // Farming, megalithic tombs
   bronze_age:      { start: -2500, end: -500 },
   iron_age:        { start: -500,  end: 400 },
   early_christian: { start: 400,   end: 800 },

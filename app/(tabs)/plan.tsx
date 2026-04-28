@@ -43,7 +43,7 @@ import { track } from '@/utils/telemetry';
 import { IRISH_COUNTIES } from '@/data/counties';
 
 const ALL_PERIODS: Period[] = [
-  'stone_age', 'bronze_age', 'iron_age', 'early_christian',
+  'mesolithic', 'neolithic', 'bronze_age', 'iron_age', 'early_christian',
   'early_medieval', 'medieval', 'post_medieval',
 ];
 

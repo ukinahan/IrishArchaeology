@@ -104,7 +104,7 @@ https://services-eu1.arcgis.com/HyjXgkV6KGMSF3jt/arcgis/rest/services/SMR/Featur
 - ~930,000 recorded archaeological sites across all 26 counties
 - Spatial queries (sites within radius of GPS location)
 - Paginated county queries (2,000 records per page)
-- Monument classes mapped to 7 app periods: Stone Age → Post-Medieval
+- Monument classes mapped to 8 app periods: Mesolithic → Post-Medieval
 
 ## Licence
 

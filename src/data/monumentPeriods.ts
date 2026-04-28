@@ -4,16 +4,18 @@
 import { Period } from './sites';
 
 const CLASS_TO_PERIOD: Record<string, Period> = {
-  // ─── Stone Age (Neolithic / Mesolithic) ─────────────────────────
-  'Court tomb': 'stone_age',
-  'Passage tomb': 'stone_age',
-  'Passage tomb - unclassified': 'stone_age',
-  'Portal tomb': 'stone_age',
-  'Linkardstown-type burial': 'stone_age',
-  'Megalithic tomb - unclassified': 'stone_age',
-  'Megalithic structure': 'stone_age',
-  'Shell midden': 'stone_age',
-  'Flint scatter': 'stone_age',
+  // ─── Mesolithic (hunter-gatherer, pre-farming) ──────────────────
+  'Shell midden': 'mesolithic',
+  'Flint scatter': 'mesolithic',
+
+  // ─── Neolithic (megalithic tombs, farming) ──────────────────────
+  'Court tomb': 'neolithic',
+  'Passage tomb': 'neolithic',
+  'Passage tomb - unclassified': 'neolithic',
+  'Portal tomb': 'neolithic',
+  'Linkardstown-type burial': 'neolithic',
+  'Megalithic tomb - unclassified': 'neolithic',
+  'Megalithic structure': 'neolithic',
 
   // ─── Bronze Age ─────────────────────────────────────────────────
   'Fulacht fia': 'bronze_age',
@@ -137,8 +139,10 @@ const CLASS_TO_PERIOD: Record<string, Period> = {
 
 // Keyword fallback for classes not in the explicit map
 const KEYWORD_TO_PERIOD: [RegExp, Period][] = [
-  [/\btomb\b/i, 'stone_age'],
-  [/\bmegalith/i, 'stone_age'],
+  [/\bshell midden\b/i, 'mesolithic'],
+  [/\bflint scatter\b/i, 'mesolithic'],
+  [/\btomb\b/i, 'neolithic'],
+  [/\bmegalith/i, 'neolithic'],
   [/\bfulacht/i, 'bronze_age'],
   [/\bbarrow\b/i, 'bronze_age'],
   [/\bcairn\b/i, 'bronze_age'],

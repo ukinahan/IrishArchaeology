@@ -92,7 +92,7 @@ const FALLBACKS: FallbackTemplate[] = [
   },
   {
     type: 'Passage Tomb',
-    period: 'stone_age',
+    period: 'neolithic',
     headline: 'A passage tomb may lie on this rise',
     detail:
       'Neolithic burial mounds, often set on prominent hilltops with sweeping views. Look for a kerb of large stones at the base of a turfed mound.',

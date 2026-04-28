@@ -14,7 +14,8 @@ import { Period, PERIOD_ICONS, PERIOD_LABELS } from '../data/sites';
 import { COLORS, FONTS, RADII } from '../utils/theme';
 
 const PERIODS: Period[] = [
-  'stone_age',
+  'mesolithic',
+  'neolithic',
   'bronze_age',
   'iron_age',
   'early_christian',

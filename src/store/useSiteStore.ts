@@ -3,6 +3,13 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ArchSite, Period } from '../data/sites';
 import { fetchSitesNear as apiFetchNear, fetchSitesByCounty, fetchSitesInBounds, fetchCountrySample } from '../services/siteService';
+import {
+  fetchNISitesNear,
+  fetchNISitesByCounty,
+  fetchNISitesInBounds,
+  fetchNICountrySample,
+  NI_COUNTIES,
+} from '../services/niSiteService';
 import { getCachedSites, cacheSites } from '../utils/offlineCache';
 
 const SAVED_KEY = 'saved_site_ids_v1';
@@ -92,7 +99,11 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
   loadCountrySample: async () => {
     if (get().countrySampleLoaded) return;
     try {
-      const sites = await fetchCountrySample(80);
+      const [roi, ni] = await Promise.all([
+        fetchCountrySample(80).catch(() => [] as ArchSite[]),
+        fetchNICountrySample(600).catch(() => [] as ArchSite[]),
+      ]);
+      const sites = [...roi, ...ni];
       if (sites.length === 0) return;
       set((s) => {
         const merged = mergeSites(s.allSites, sites);
@@ -120,7 +131,11 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
     const r = radius ?? get().radiusKm ?? 10;
     set({ isLoading: true, loadError: null });
     try {
-      const sites = await apiFetchNear(lat, lng, r);
+      const [roi, ni] = await Promise.all([
+        apiFetchNear(lat, lng, r).catch(() => [] as ArchSite[]),
+        fetchNISitesNear(lat, lng, r).catch(() => [] as ArchSite[]),
+      ]);
+      const sites = [...roi, ...ni];
       set((s) => {
         const merged = mergeSites(s.allSites, sites);
         // Fire-and-forget cache update
@@ -136,7 +151,10 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
   loadSitesByCounty: async (county) => {
     set({ isLoading: true, loadError: null });
     try {
-      const sites = await fetchSitesByCounty(county);
+      const isNI = (NI_COUNTIES as readonly string[]).includes(county);
+      const sites = isNI
+        ? await fetchNISitesByCounty(county)
+        : await fetchSitesByCounty(county);
       set((s) => {
         const merged = mergeSites(s.allSites, sites);
         cacheSites(merged).catch(() => {});
@@ -170,7 +188,11 @@ export const useSiteStore = create<SiteStore>((set, get) => ({
   loadSitesInBounds: async (minLat, minLng, maxLat, maxLng) => {
     set({ bboxLoading: true });
     try {
-      const sites = await fetchSitesInBounds(minLat, minLng, maxLat, maxLng);
+      const [roi, ni] = await Promise.all([
+        fetchSitesInBounds(minLat, minLng, maxLat, maxLng).catch(() => [] as ArchSite[]),
+        fetchNISitesInBounds(minLat, minLng, maxLat, maxLng).catch(() => [] as ArchSite[]),
+      ]);
+      const sites = [...roi, ...ni];
       if (sites.length === 0) {
         set({ bboxLoading: false });
         return;

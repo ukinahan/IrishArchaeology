@@ -18,7 +18,7 @@ export const BUNDLED_ENRICHMENTS: SiteEnrichment[] = [
     whatToLookFor:
       'The white quartz facade, the carved entrance stone (the most famous piece of megalithic art in Europe), the roofbox above the entrance, and the kerbstones encircling the mound. The interior is accessible only by guided tour from the visitor centre.',
     whenUsed: { start: -3200, end: -2500 },
-    period: 'stone_age',
+    period: 'neolithic',
   },
   {
     id: 'ME020-005----',

@@ -20,17 +20,17 @@ export interface MarqueeSite {
 }
 
 export const MARQUEE_SITES: MarqueeSite[] = [
-  // --- Stone Age ---
-  { name: 'Newgrange Passage Tomb', townland: 'Newgrange', county: 'Meath', period: 'stone_age', blurb: 'World-famous 5,200-year-old passage tomb, aligned to the winter solstice sunrise.' },
-  { name: 'Knowth', townland: 'Knowth', county: 'Meath', period: 'stone_age', blurb: 'Largest passage tomb in the Brú na Bóinne complex; vast collection of megalithic art.' },
-  { name: 'Dowth', townland: 'Dowth', county: 'Meath', period: 'stone_age', blurb: 'The third Boyne tomb — quieter than its neighbours, aligned to the winter solstice sunset.' },
-  { name: 'Loughcrew Cairns', townland: 'Carnbane', county: 'Meath', period: 'stone_age', blurb: 'Hilltop passage tombs with equinox solar alignments and rich megalithic art.' },
-  { name: 'Carrowmore Megalithic Cemetery', townland: 'Carrowmore', county: 'Sligo', period: 'stone_age', blurb: 'One of the largest and oldest megalithic complexes in Europe.' },
-  { name: 'Carrowkeel Cairns', townland: 'Carrowkeel', county: 'Sligo', period: 'stone_age', blurb: 'Hilltop passage tombs in the Bricklieve Mountains with sweeping views.' },
-  { name: 'Poulnabrone Dolmen', townland: 'Poulnabrone', county: 'Clare', period: 'stone_age', blurb: 'Iconic portal tomb on the Burren limestone pavement.' },
-  { name: 'Browne\u2019s Hill Dolmen', townland: 'Kernanstown', county: 'Carlow', period: 'stone_age', blurb: 'Portal tomb with the heaviest capstone in Europe (~100 tonnes).' },
-  { name: 'Creevykeel Court Tomb', townland: 'Creevykeel', county: 'Sligo', period: 'stone_age', blurb: 'One of the finest examples of a full court tomb in Ireland.' },
-  { name: 'Ceide Fields', townland: 'Behy', county: 'Mayo', period: 'stone_age', blurb: 'A 5,500-year-old farming landscape preserved beneath blanket bog.' },
+  // --- Neolithic ---
+  { name: 'Newgrange Passage Tomb', townland: 'Newgrange', county: 'Meath', period: 'neolithic', blurb: 'World-famous 5,200-year-old passage tomb, aligned to the winter solstice sunrise.' },
+  { name: 'Knowth', townland: 'Knowth', county: 'Meath', period: 'neolithic', blurb: 'Largest passage tomb in the Brú na Bóinne complex; vast collection of megalithic art.' },
+  { name: 'Dowth', townland: 'Dowth', county: 'Meath', period: 'neolithic', blurb: 'The third Boyne tomb — quieter than its neighbours, aligned to the winter solstice sunset.' },
+  { name: 'Loughcrew Cairns', townland: 'Carnbane', county: 'Meath', period: 'neolithic', blurb: 'Hilltop passage tombs with equinox solar alignments and rich megalithic art.' },
+  { name: 'Carrowmore Megalithic Cemetery', townland: 'Carrowmore', county: 'Sligo', period: 'neolithic', blurb: 'One of the largest and oldest megalithic complexes in Europe.' },
+  { name: 'Carrowkeel Cairns', townland: 'Carrowkeel', county: 'Sligo', period: 'neolithic', blurb: 'Hilltop passage tombs in the Bricklieve Mountains with sweeping views.' },
+  { name: 'Poulnabrone Dolmen', townland: 'Poulnabrone', county: 'Clare', period: 'neolithic', blurb: 'Iconic portal tomb on the Burren limestone pavement.' },
+  { name: 'Browne\u2019s Hill Dolmen', townland: 'Kernanstown', county: 'Carlow', period: 'neolithic', blurb: 'Portal tomb with the heaviest capstone in Europe (~100 tonnes).' },
+  { name: 'Creevykeel Court Tomb', townland: 'Creevykeel', county: 'Sligo', period: 'neolithic', blurb: 'One of the finest examples of a full court tomb in Ireland.' },
+  { name: 'Ceide Fields', townland: 'Behy', county: 'Mayo', period: 'neolithic', blurb: 'A 5,500-year-old farming landscape preserved beneath blanket bog.' },
 
   // --- Bronze Age ---
   { name: 'Drombeg Stone Circle', townland: 'Drombeg', county: 'Cork', period: 'bronze_age', blurb: 'Recumbent stone circle aligned to the winter solstice sunset.' },

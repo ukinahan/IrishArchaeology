@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx  —  Explorer Map screen (Mapbox)
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Modal, FlatList, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Modal, FlatList, Pressable, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import Mapbox, { MapView, Camera, ShapeSource, CircleLayer, SymbolLayer, UserLocation } from '@rnmapbox/maps';
@@ -24,11 +24,11 @@ type Region = {
 };
 import { useLocation } from '@/hooks/useLocation';
 import { useSiteStore, getAvailableCounties } from '@/store/useSiteStore';
-import { PeriodFilterBar } from '@/components/PeriodFilterBar';
 import { TimeMachineSlider, periodAtYear } from '@/components/TimeMachineSlider';
 import { PulsingOrbs } from '@/components/PulsingOrbs';
 import { Period, PERIOD_COLORS } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
+import { wgs84ToITM, formatITM } from '@/utils/itm';
 import { Alert } from 'react-native';
 import {
   downloadIrelandPack,
@@ -48,7 +48,8 @@ const MAX_BBOX_DELTA_DEG = 1.5;
 
 // Period -> circle colour rendered by Mapbox CircleLayer.
 const PIN_COLOR: Record<string, string> = {
-  stone_age: '#8a7a5f',
+  mesolithic: '#6b5d47',
+  neolithic: '#8a7a5f',
   bronze_age: '#cd7f32',
   iron_age: '#6b5d3f',
   early_christian: '#c0a060',
@@ -92,6 +93,13 @@ const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number; latDelta: num
   Westmeath: { lat: 53.5350, lng: -7.4650, latDelta: 0.65, lngDelta: 0.85 },
   Wexford:   { lat: 52.4500, lng: -6.5800, latDelta: 0.85, lngDelta: 0.75 },
   Wicklow:   { lat: 52.9800, lng: -6.4400, latDelta: 0.75, lngDelta: 0.55 },
+  // Northern Ireland (traditional counties)
+  Antrim:      { lat: 54.7200, lng: -6.2100, latDelta: 0.90, lngDelta: 0.95 },
+  Armagh:      { lat: 54.3500, lng: -6.6500, latDelta: 0.55, lngDelta: 0.65 },
+  Down:        { lat: 54.3300, lng: -5.7500, latDelta: 0.85, lngDelta: 0.95 },
+  Fermanagh:   { lat: 54.3500, lng: -7.6500, latDelta: 0.65, lngDelta: 0.95 },
+  Londonderry: { lat: 54.9800, lng: -7.0500, latDelta: 0.65, lngDelta: 0.95 },
+  Tyrone:      { lat: 54.6000, lng: -7.3000, latDelta: 0.85, lngDelta: 1.10 },
 };
 
 export default function NearbyScreen() {
@@ -182,6 +190,12 @@ export default function NearbyScreen() {
     );
   }, [offlineHasPack, offlinePct]);
   const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
+  // ITM (Irish Transverse Mercator) coordinates of the current map centre,
+  // shown in a small overlay in the bottom-left corner of the map — mirrors
+  // the readout in the National Monuments Service map viewer.
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+  // Free-text search by site name. Filters the visible markers in real time.
+  const [nameQuery, setNameQuery] = useState('');
   const bboxFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitialCountyFocus = useRef(false);
   const pendingCountyFocus = useRef<string | null>(activeCountyFilter);
@@ -274,6 +288,7 @@ export default function NearbyScreen() {
   // When the map finishes mounting, mark it ready so the focus effect can run.
   const handleMapReady = useCallback(() => {
     setMapReady(true);
+    setMapCenter((c) => c ?? { lat: initialRegion.latitude, lng: initialRegion.longitude });
   }, []);
 
   const handleCountySelect = useCallback(
@@ -328,6 +343,7 @@ export default function NearbyScreen() {
           longitudeDelta: maxLng - minLng,
         };
         setVisibleRegion(region);
+        setMapCenter({ lat: region.latitude, lng: region.longitude });
 
         if (activeCountyFilter) return;
         if (pendingCountyFocus.current) return;
@@ -400,10 +416,17 @@ export default function NearbyScreen() {
   }, [activeCountyFilter, allSites.length === 0]);
 
   // Memoize filtered list and cap displayed markers for performance
-  const allFilteredSites = useMemo(
-    () => (lat && lng ? getSitesNear(lat, lng) : getSitesNear(53.4, -8.0)),
-    [lat, lng, allSites, activePeriodFilter, activeCountyFilter, getSitesNear],
-  );
+  const allFilteredSites = useMemo(() => {
+    const base = lat && lng ? getSitesNear(lat, lng) : getSitesNear(53.4, -8.0);
+    const q = nameQuery.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        (s.irishName?.toLowerCase().includes(q) ?? false) ||
+        (s.smrRef?.toLowerCase().includes(q) ?? false),
+    );
+  }, [lat, lng, allSites, activePeriodFilter, activeCountyFilter, getSitesNear, nameQuery]);
 
   const sites = useMemo(() => {
     if (allFilteredSites.length <= MAX_MARKERS) return allFilteredSites;
@@ -530,8 +553,30 @@ export default function NearbyScreen() {
         </View>
       </View>
 
-      {/* Period filter */}
-      <PeriodFilterBar active={activePeriodFilter} onChange={setActivePeriodFilter} />
+      {/* Search by site name */}
+      <View style={styles.searchRow}>
+        <Ionicons name="search" size={16} color={COLORS.stoneLight} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          value={nameQuery}
+          onChangeText={setNameQuery}
+          placeholder="Search by site name…"
+          placeholderTextColor={COLORS.stoneLight}
+          autoCorrect={false}
+          autoCapitalize="words"
+          returnKeyType="search"
+          accessibilityLabel="Search sites by name"
+        />
+        {nameQuery.length > 0 && (
+          <TouchableOpacity
+            onPress={() => setNameQuery('')}
+            hitSlop={10}
+            accessibilityLabel="Clear search"
+          >
+            <Ionicons name="close-circle" size={18} color={COLORS.stoneLight} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* Time Machine timeline */}
       <View style={styles.timeMachineWrap}>
@@ -737,6 +782,18 @@ export default function NearbyScreen() {
           </View>
         )}
 
+        {/* ITM coordinate readout (Irish Transverse Mercator, EPSG:2157) —
+            mirrors the coordinate display in the National Monuments Service
+            map viewer. Tracks the centre of the current map viewport. */}
+        {mapCenter && (
+          <View style={styles.itmBadge} pointerEvents="none">
+            <Text style={styles.itmBadgeLabel}>ITM</Text>
+            <Text style={styles.itmBadgeText}>
+              {formatITM(wgs84ToITM(mapCenter.lat, mapCenter.lng))}
+            </Text>
+          </View>
+        )}
+
         {error && !loading && !activeCountyFilter && (
           <View style={styles.overlay}>
             <Ionicons name="location-outline" size={40} color={COLORS.stoneLight} />
@@ -909,6 +966,54 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingBottom: 8,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: COLORS.forestMid,
+    borderWidth: 1,
+    borderColor: COLORS.forestLight,
+    borderRadius: RADII.sm,
+  },
+  searchIcon: { marginRight: 2 },
+  searchInput: {
+    flex: 1,
+    color: COLORS.parchment,
+    fontSize: FONTS.sizes.sm,
+    fontWeight: '600',
+    paddingVertical: 0,
+  },
+  itmBadge: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: RADII.sm,
+    zIndex: 15,
+    elevation: 15,
+  },
+  itmBadgeLabel: {
+    color: COLORS.gold,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  itmBadgeText: {
+    color: COLORS.parchment,
+    fontSize: 11,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
   timeMachineWrap: {
     paddingHorizontal: 16,
