@@ -2,7 +2,16 @@
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Modal, FlatList, Pressable, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import Mapbox, { MapView, Camera, ShapeSource, CircleLayer, SymbolLayer, UserLocation } from '@rnmapbox/maps';
+import Mapbox, {
+  MapView,
+  Camera,
+  ShapeSource,
+  CircleLayer,
+  SymbolLayer,
+  LineLayer,
+  FillLayer,
+  UserLocation,
+} from '@rnmapbox/maps';
 import Constants from 'expo-constants';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -31,6 +40,12 @@ import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 import { wgs84ToITM, formatITM } from '@/utils/itm';
 import { searchSites } from '@/services/siteService';
 import { searchNISites } from '@/services/niSiteService';
+import {
+  searchTownlands,
+  fetchTownlandPolygon,
+  type TownlandHit,
+  type TownlandPolygon,
+} from '@/services/townlandService';
 import { Alert } from 'react-native';
 import {
   downloadIrelandPack,
@@ -199,15 +214,19 @@ export default function NearbyScreen() {
   // Free-text search by site name. Filters the visible markers in real time.
   const [nameQuery, setNameQuery] = useState('');
   // Autocomplete dropdown beneath the search input. Hits the NMS + HERoNI
-  // search endpoints (debounced) and surfaces both individual sites and
-  // distinct townland names. Tapping a townland flies the map to the
-  // averaged centroid of its sites.
+  // site search endpoints AND the Tailte Éireann townland boundary service
+  // (debounced, in parallel). Selecting a townland fetches its polygon and
+  // flies the map to fit the boundary, drawing it as an outlined overlay
+  // (matches the NMS / ArcGIS map viewer behaviour).
   const [searchSuggestions, setSearchSuggestions] = useState<{
     sites: ArchSite[];
-    townlands: { name: string; lat: number; lng: number; count: number }[];
+    townlands: TownlandHit[];
   }>({ sites: [], townlands: [] });
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  // Active townland boundary overlay (fetched on selection from the dropdown).
+  const [activeTownland, setActiveTownland] = useState<TownlandPolygon | null>(null);
+  const [townlandLoading, setTownlandLoading] = useState(false);
   const bboxFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitialCountyFocus = useRef(false);
   const pendingCountyFocus = useRef<string | null>(activeCountyFilter);
@@ -508,10 +527,10 @@ export default function NearbyScreen() {
     [router],
   );
 
-  // Debounced autocomplete search: hits NMS + HERoNI in parallel ~250ms after
-  // typing stops. Aggregates results into individual sites + distinct townland
-  // matches. Townland centroids are the average of all returned site
-  // coordinates carrying that townland.
+  // Debounced autocomplete search: hits NMS + HERoNI site search AND the
+  // Tailte Éireann townland boundary service in parallel ~250ms after typing
+  // stops. Townland matches come from the authoritative boundary dataset, not
+  // inferred from site names — so they always exist and have real polygons.
   useEffect(() => {
     const q = nameQuery.trim();
     if (q.length < 2) {
@@ -519,47 +538,21 @@ export default function NearbyScreen() {
       setSearchLoading(false);
       return;
     }
+    const ac = new AbortController();
     let cancelled = false;
     setSearchLoading(true);
     const t = setTimeout(async () => {
       try {
-        const [roi, ni] = await Promise.all([
+        const [roi, ni, townlands] = await Promise.all([
           searchSites(q, 15).catch(() => [] as ArchSite[]),
           searchNISites(q, 15).catch(() => [] as ArchSite[]),
+          searchTownlands(q, 6, ac.signal).catch(() => [] as TownlandHit[]),
         ]);
         if (cancelled) return;
         const combined = [...roi, ...ni];
-        // Extract townland from "Monument class, Townland" naming convention.
-        const tlMap = new Map<string, { latSum: number; lngSum: number; count: number }>();
-        const ql = q.toLowerCase();
-        for (const s of combined) {
-          const idx = s.name.lastIndexOf(', ');
-          if (idx === -1) continue;
-          const tl = s.name.slice(idx + 2).trim();
-          if (!tl || !tl.toLowerCase().includes(ql)) continue;
-          const key = tl.toLowerCase();
-          const cur = tlMap.get(key);
-          if (cur) {
-            cur.latSum += s.lat;
-            cur.lngSum += s.lng;
-            cur.count += 1;
-          } else {
-            tlMap.set(key, { latSum: s.lat, lngSum: s.lng, count: 1 });
-          }
-        }
-        const townlands = Array.from(tlMap.entries())
-          .map(([key, v]) => {
-            // Recover original-cased townland from first matching site
-            const sample = combined.find((s) => s.name.toLowerCase().endsWith(', ' + key));
-            const name = sample ? sample.name.slice(sample.name.lastIndexOf(', ') + 2) : key;
-            return { name, lat: v.latSum / v.count, lng: v.lngSum / v.count, count: v.count };
-          })
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 6);
-        // Cap site list to keep dropdown short
         const siteList = combined.slice(0, 8);
         setSearchSuggestions({ sites: siteList, townlands });
-        // Pull these into the store so the markers actually render once tapped
+        // Pull the site results into the store so markers render once tapped
         if (combined.length > 0) addSites(combined);
       } finally {
         if (!cancelled) setSearchLoading(false);
@@ -567,23 +560,37 @@ export default function NearbyScreen() {
     }, 250);
     return () => {
       cancelled = true;
+      ac.abort();
       clearTimeout(t);
     };
   }, [nameQuery, addSites]);
 
   const handleSelectTownland = useCallback(
-    (tl: { name: string; lat: number; lng: number }) => {
+    async (tl: TownlandHit) => {
       setNameQuery('');
       setSearchSuggestions({ sites: [], townlands: [] });
       setSearchFocused(false);
-      cameraRef.current?.setCamera({
-        centerCoordinate: [tl.lng, tl.lat],
-        zoomLevel: 13,
-        animationDuration: 700,
-      });
+      setTownlandLoading(true);
+      try {
+        const poly = await fetchTownlandPolygon(tl.tdId);
+        if (!poly) return;
+        setActiveTownland(poly);
+        const [minLng, minLat, maxLng, maxLat] = poly.bbox;
+        // Mapbox fitBounds(ne, sw, paddingPx, animMs)
+        cameraRef.current?.fitBounds(
+          [maxLng, maxLat],
+          [minLng, minLat],
+          [80, 40, 120, 40],
+          800,
+        );
+      } finally {
+        setTownlandLoading(false);
+      }
     },
     [],
   );
+
+  const clearTownlandOverlay = useCallback(() => setActiveTownland(null), []);
 
   const handleSelectSiteSuggestion = useCallback(
     (s: ArchSite) => {
@@ -694,17 +701,17 @@ export default function NearbyScreen() {
               <Text style={styles.suggestSectionLabel}>Townlands</Text>
               {searchSuggestions.townlands.map((tl) => (
                 <TouchableOpacity
-                  key={`tl-${tl.name}`}
+                  key={`tl-${tl.tdId}`}
                   style={styles.suggestRow}
                   onPress={() => handleSelectTownland(tl)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Fly map to townland ${tl.name}`}
+                  accessibilityLabel={`Outline townland ${tl.name}`}
                 >
-                  <Ionicons name="location-outline" size={16} color={COLORS.gold} />
+                  <Ionicons name="map-outline" size={16} color={COLORS.gold} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.suggestPrimary} numberOfLines={1}>{tl.name}</Text>
-                    <Text style={styles.suggestSecondary}>
-                      {tl.count} {tl.count === 1 ? 'site' : 'sites'}
+                    <Text style={styles.suggestSecondary} numberOfLines={1}>
+                      {tl.county ? `Co. ${tl.county}` : 'Townland'}
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={14} color={COLORS.stoneLight} />
@@ -919,6 +926,38 @@ export default function NearbyScreen() {
                 />
               </ShapeSource>
             )}
+
+            {/* Active townland boundary overlay — outline + faint fill,
+                drawn on top of site markers so it reads clearly. Mirrors the
+                ArcGIS map viewer behaviour where the searched townland is
+                highlighted with a cyan boundary. */}
+            {activeTownland && (
+              <ShapeSource
+                id="townland-boundary-source"
+                shape={{
+                  type: 'Feature',
+                  properties: { name: activeTownland.name },
+                  geometry: activeTownland.geometry,
+                }}
+              >
+                <FillLayer
+                  id="townland-boundary-fill"
+                  style={{
+                    fillColor: '#22d3ee',
+                    fillOpacity: 0.12,
+                  }}
+                />
+                <LineLayer
+                  id="townland-boundary-line"
+                  style={{
+                    lineColor: '#22d3ee',
+                    lineWidth: 3,
+                    lineOpacity: 0.95,
+                    lineJoin: 'round',
+                  }}
+                />
+              </ShapeSource>
+            )}
           </MapView>
         ) : null}
 
@@ -942,6 +981,50 @@ export default function NearbyScreen() {
           <View style={styles.bboxBadge} pointerEvents="none">
             <PulsingOrbs size={8} />
             <Text style={styles.bboxBadgeText}>Loading sites…</Text>
+          </View>
+        )}
+
+        {/* Active townland chip — shows the currently outlined townland and
+            lets the user dismiss the boundary overlay. */}
+        {(activeTownland || townlandLoading) && (
+          <View style={styles.townlandChip}>
+            <Ionicons name="map" size={14} color={COLORS.forestDark} />
+            {townlandLoading && !activeTownland ? (
+              <Text style={styles.townlandChipText}>Loading townland…</Text>
+            ) : activeTownland ? (
+              <>
+                <View style={{ flexShrink: 1 }}>
+                  <Text style={styles.townlandChipText} numberOfLines={1}>
+                    {activeTownland.name}
+                  </Text>
+                  {!!activeTownland.county && (
+                    <Text style={styles.townlandChipSub} numberOfLines={1}>
+                      Co. {activeTownland.county}
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  onPress={clearTownlandOverlay}
+                  hitSlop={10}
+                  accessibilityLabel="Clear townland boundary"
+                >
+                  <Ionicons name="close-circle" size={18} color={COLORS.forestDark} />
+                </TouchableOpacity>
+              </>
+            ) : null}
+          </View>
+        )}
+
+        {/* Centre-point crosshair — marks the exact location whose ITM
+            coordinates are shown in the badge below. Pan the map to
+            "hover" the crosshair over a site to read off its ITM grid
+            reference, mirroring the NMS map viewer behaviour. */}
+        {mapCenter && (
+          <View style={styles.crosshairWrap} pointerEvents="none">
+            <View style={styles.crosshairLineH} />
+            <View style={styles.crosshairLineV} />
+            <View style={styles.crosshairRing} />
+            <View style={styles.crosshairDot} />
           </View>
         )}
 
@@ -1123,6 +1206,38 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.xs,
     fontWeight: '600',
   },
+  townlandChip: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    maxWidth: '70%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.parchment,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: '#22d3ee',
+    zIndex: 20,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  townlandChipText: {
+    color: COLORS.forestDark,
+    fontSize: FONTS.sizes.sm,
+    fontWeight: '700',
+  },
+  townlandChipSub: {
+    color: COLORS.forestDark,
+    fontSize: 10,
+    fontWeight: '500',
+    opacity: 0.7,
+  },
   countyDropdownRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1204,6 +1319,52 @@ const styles = StyleSheet.create({
     borderRadius: RADII.sm,
     zIndex: 15,
     elevation: 15,
+  },
+  crosshairWrap: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 40,
+    height: 40,
+    marginTop: -20,
+    marginLeft: -20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 14,
+    elevation: 14,
+  },
+  crosshairLineH: {
+    position: 'absolute',
+    top: '50%',
+    left: 0,
+    right: 0,
+    height: 1,
+    marginTop: -0.5,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  crosshairLineV: {
+    position: 'absolute',
+    left: '50%',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    marginLeft: -0.5,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  crosshairRing: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: COLORS.gold,
+    backgroundColor: 'transparent',
+  },
+  crosshairDot: {
+    position: 'absolute',
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: COLORS.gold,
   },
   itmBadgeLabel: {
     color: COLORS.gold,
