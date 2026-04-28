@@ -2,7 +2,7 @@
   "expo": {
     "name": "Evin Cairn",
     "slug": "irish-archaeology",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "newArchEnabled": true,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.irisharchaeology.app",
-      "buildNumber": "42",
+      "buildNumber": "44",
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {

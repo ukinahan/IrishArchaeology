@@ -26,9 +26,11 @@ import { useLocation } from '@/hooks/useLocation';
 import { useSiteStore, getAvailableCounties } from '@/store/useSiteStore';
 import { TimeMachineSlider, periodAtYear } from '@/components/TimeMachineSlider';
 import { PulsingOrbs } from '@/components/PulsingOrbs';
-import { Period, PERIOD_COLORS } from '@/data/sites';
+import { Period, PERIOD_COLORS, ArchSite } from '@/data/sites';
 import { COLORS, FONTS, RADII, SHADOWS } from '@/utils/theme';
 import { wgs84ToITM, formatITM } from '@/utils/itm';
+import { searchSites } from '@/services/siteService';
+import { searchNISites } from '@/services/niSiteService';
 import { Alert } from 'react-native';
 import {
   downloadIrelandPack,
@@ -110,7 +112,7 @@ export default function NearbyScreen() {
   const { activePeriodFilter, setActivePeriodFilter,
           activeCountyFilter, setActiveCountyFilter, getSitesNear,
           loadSitesNear, loadSitesByCounty, loadSitesInBounds, loadCountrySample,
-          initFromCache, allSites,
+          initFromCache, allSites, addSites,
           bboxLoading } = useSiteStore();
 
   const AVAILABLE_COUNTIES = useMemo(() => {
@@ -196,6 +198,16 @@ export default function NearbyScreen() {
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
   // Free-text search by site name. Filters the visible markers in real time.
   const [nameQuery, setNameQuery] = useState('');
+  // Autocomplete dropdown beneath the search input. Hits the NMS + HERoNI
+  // search endpoints (debounced) and surfaces both individual sites and
+  // distinct townland names. Tapping a townland flies the map to the
+  // averaged centroid of its sites.
+  const [searchSuggestions, setSearchSuggestions] = useState<{
+    sites: ArchSite[];
+    townlands: { name: string; lat: number; lng: number; count: number }[];
+  }>({ sites: [], townlands: [] });
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
   const bboxFetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitialCountyFocus = useRef(false);
   const pendingCountyFocus = useRef<string | null>(activeCountyFilter);
@@ -496,6 +508,93 @@ export default function NearbyScreen() {
     [router],
   );
 
+  // Debounced autocomplete search: hits NMS + HERoNI in parallel ~250ms after
+  // typing stops. Aggregates results into individual sites + distinct townland
+  // matches. Townland centroids are the average of all returned site
+  // coordinates carrying that townland.
+  useEffect(() => {
+    const q = nameQuery.trim();
+    if (q.length < 2) {
+      setSearchSuggestions({ sites: [], townlands: [] });
+      setSearchLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const [roi, ni] = await Promise.all([
+          searchSites(q, 15).catch(() => [] as ArchSite[]),
+          searchNISites(q, 15).catch(() => [] as ArchSite[]),
+        ]);
+        if (cancelled) return;
+        const combined = [...roi, ...ni];
+        // Extract townland from "Monument class, Townland" naming convention.
+        const tlMap = new Map<string, { latSum: number; lngSum: number; count: number }>();
+        const ql = q.toLowerCase();
+        for (const s of combined) {
+          const idx = s.name.lastIndexOf(', ');
+          if (idx === -1) continue;
+          const tl = s.name.slice(idx + 2).trim();
+          if (!tl || !tl.toLowerCase().includes(ql)) continue;
+          const key = tl.toLowerCase();
+          const cur = tlMap.get(key);
+          if (cur) {
+            cur.latSum += s.lat;
+            cur.lngSum += s.lng;
+            cur.count += 1;
+          } else {
+            tlMap.set(key, { latSum: s.lat, lngSum: s.lng, count: 1 });
+          }
+        }
+        const townlands = Array.from(tlMap.entries())
+          .map(([key, v]) => {
+            // Recover original-cased townland from first matching site
+            const sample = combined.find((s) => s.name.toLowerCase().endsWith(', ' + key));
+            const name = sample ? sample.name.slice(sample.name.lastIndexOf(', ') + 2) : key;
+            return { name, lat: v.latSum / v.count, lng: v.lngSum / v.count, count: v.count };
+          })
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 6);
+        // Cap site list to keep dropdown short
+        const siteList = combined.slice(0, 8);
+        setSearchSuggestions({ sites: siteList, townlands });
+        // Pull these into the store so the markers actually render once tapped
+        if (combined.length > 0) addSites(combined);
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [nameQuery, addSites]);
+
+  const handleSelectTownland = useCallback(
+    (tl: { name: string; lat: number; lng: number }) => {
+      setNameQuery('');
+      setSearchSuggestions({ sites: [], townlands: [] });
+      setSearchFocused(false);
+      cameraRef.current?.setCamera({
+        centerCoordinate: [tl.lng, tl.lat],
+        zoomLevel: 13,
+        animationDuration: 700,
+      });
+    },
+    [],
+  );
+
+  const handleSelectSiteSuggestion = useCallback(
+    (s: ArchSite) => {
+      setNameQuery('');
+      setSearchSuggestions({ sites: [], townlands: [] });
+      setSearchFocused(false);
+      handleSitePress(s.id);
+    },
+    [handleSitePress],
+  );
+
   // Build a GeoJSON FeatureCollection for the Mapbox ShapeSource.
   const sitesFeatureCollection = useMemo(() => {
     return {
@@ -560,14 +659,22 @@ export default function NearbyScreen() {
           style={styles.searchInput}
           value={nameQuery}
           onChangeText={setNameQuery}
-          placeholder="Search by site name…"
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => {
+            // Delay so taps on dropdown rows can register before it hides
+            setTimeout(() => setSearchFocused(false), 150);
+          }}
+          placeholder="Search sites or townlands…"
           placeholderTextColor={COLORS.stoneLight}
           autoCorrect={false}
           autoCapitalize="words"
           returnKeyType="search"
-          accessibilityLabel="Search sites by name"
+          accessibilityLabel="Search sites or townlands by name"
         />
-        {nameQuery.length > 0 && (
+        {searchLoading && (
+          <ActivityIndicator size="small" color={COLORS.stoneLight} style={{ marginRight: 4 }} />
+        )}
+        {nameQuery.length > 0 && !searchLoading && (
           <TouchableOpacity
             onPress={() => setNameQuery('')}
             hitSlop={10}
@@ -577,6 +684,62 @@ export default function NearbyScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Autocomplete suggestions */}
+      {searchFocused && nameQuery.trim().length >= 2 &&
+        (searchSuggestions.sites.length > 0 || searchSuggestions.townlands.length > 0) && (
+        <View style={styles.suggestBox}>
+          {searchSuggestions.townlands.length > 0 && (
+            <>
+              <Text style={styles.suggestSectionLabel}>Townlands</Text>
+              {searchSuggestions.townlands.map((tl) => (
+                <TouchableOpacity
+                  key={`tl-${tl.name}`}
+                  style={styles.suggestRow}
+                  onPress={() => handleSelectTownland(tl)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Fly map to townland ${tl.name}`}
+                >
+                  <Ionicons name="location-outline" size={16} color={COLORS.gold} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.suggestPrimary} numberOfLines={1}>{tl.name}</Text>
+                    <Text style={styles.suggestSecondary}>
+                      {tl.count} {tl.count === 1 ? 'site' : 'sites'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={14} color={COLORS.stoneLight} />
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+          {searchSuggestions.sites.length > 0 && (
+            <>
+              <Text style={styles.suggestSectionLabel}>Sites</Text>
+              {searchSuggestions.sites.map((s) => (
+                <TouchableOpacity
+                  key={`s-${s.id}`}
+                  style={styles.suggestRow}
+                  onPress={() => handleSelectSiteSuggestion(s)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open site ${s.name}`}
+                >
+                  <Ionicons name="pin-outline" size={16} color={COLORS.parchment} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.suggestPrimary} numberOfLines={1}>{s.name}</Text>
+                    {!!s.county && (
+                      <Text style={styles.suggestSecondary} numberOfLines={1}>
+                        Co. {s.county}
+                        {s.smrRef ? `  ·  ${s.smrRef}` : ''}
+                      </Text>
+                    )}
+                  </View>
+                  <Ionicons name="chevron-forward" size={14} color={COLORS.stoneLight} />
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+        </View>
+      )}
 
       {/* Time Machine timeline */}
       <View style={styles.timeMachineWrap}>
@@ -988,6 +1151,45 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.sm,
     fontWeight: '600',
     paddingVertical: 0,
+  },
+  suggestBox: {
+    marginHorizontal: 16,
+    marginBottom: 6,
+    backgroundColor: COLORS.forestMid,
+    borderWidth: 1,
+    borderColor: COLORS.forestLight,
+    borderRadius: RADII.sm,
+    overflow: 'hidden',
+    ...SHADOWS.card,
+  },
+  suggestSectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: COLORS.gold,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+    textTransform: 'uppercase',
+  },
+  suggestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.forestLight,
+  },
+  suggestPrimary: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.parchment,
+    fontWeight: '700',
+  },
+  suggestSecondary: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.stoneLight,
+    marginTop: 1,
   },
   itmBadge: {
     position: 'absolute',
