@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.irisharchaeology.app",
-      "buildNumber": "46",
+      "buildNumber": "47",
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {
