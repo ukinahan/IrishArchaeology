@@ -78,7 +78,7 @@ export function SiteCard({ site: rawSite }: Props) {
   const handleShare = async () => {
     await Share.share({
       title: site.name,
-      message: `Check out ${site.name} on Evin Cairn — ${site.whatItIs}\n\nirisharchaeology://site/${site.id}`,
+      message: `Check out ${site.name} on Seanda — ${site.whatItIs}\n\nirisharchaeology://site/${site.id}`,
     });
   };
 

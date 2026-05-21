@@ -63,7 +63,7 @@ export default function SettingsScreen() {
 
         <Text style={styles.sectionLabel}>About</Text>
         <View style={styles.card}>
-          <InfoRow label="App" value="Evin Cairn — Irish Archaeology" />
+          <InfoRow label="App" value="Seanda — Irish Archaeology" />
           <Separator />
           <InfoRow label="Version" value={`${version} (${buildNumber})`} />
           <Separator />

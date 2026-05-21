@@ -1,8 +1,8 @@
-# Evin Cairn
+# Seanda
 
 **Explore Ireland's archaeology. Open the app anywhere and instantly discover the ancient sites around you.**
 
-Evin Cairn connects to the National Monuments Service (NMS) database — over 930,000 recorded archaeological sites across Ireland — and puts them on a map at your fingertips.
+Seanda (SHAN-da, Irish for "ancient") connects to the National Monuments Service (NMS) database — over 930,000 recorded archaeological sites across Ireland — and puts them on a map at your fingertips.
 
 ## Features
 

@@ -95,7 +95,7 @@ export default function Index() {
   if (phase === 'loading') {
     return (
       <View style={styles.center}>
-        <Text style={styles.appName}>Evin Cairn</Text>
+        <Text style={styles.appName}>Seanda</Text>
         <Text style={styles.tagline}>Discover Ireland's Ancient Past</Text>
         <View style={styles.orbWrap}>
           <PulsingOrbs size={18} />

@@ -30,7 +30,7 @@ export function ConsentDialog() {
           </View>
           <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
             <Text style={styles.lead}>
-              Evin Cairn is built in Ireland and respects your data. We never sell it
+              Seanda is built in Ireland and respects your data. We never sell it
               and never identify you personally.
             </Text>
             <Text style={styles.section}>What we'd like to collect</Text>

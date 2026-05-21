@@ -80,7 +80,7 @@ Goal: site pages become guidebook-quality; serendipity loops emerge.
 - `app/plan/[shareId].tsx` *(new)* — receives a shared plan
 - `app.json` — universal links + custom scheme `evincairn://plan/abc123`
 
-**AC:** Tap "Share" on a saved plan → get `https://evincairn.app/p/abc123` → opening on a phone with the app deep-links into the imported plan; without app, browser shows preview + "Get Evin Cairn" button.
+**AC:** Tap "Share" on a saved plan → get `https://evincairn.app/p/abc123` → opening on a phone with the app deep-links into the imported plan; without app, browser shows preview + "Get Seanda" button.
 
 ---
 
@@ -128,7 +128,7 @@ Each ~600-800 words, illustrated with Wikimedia images.
 **Files:**
 - `src/services/iapService.ts` *(new)* — RevenueCat wrapper (`react-native-purchases`)
 - `src/store/useEntitlementsStore.ts` *(new)* — `isPremium: boolean`, syncs with RC
-- `app/settings.tsx` — new "Evin Cairn Premium" card (greyed out: "Coming soon")
+- `app/settings.tsx` — new "Seanda Premium" card (greyed out: "Coming soon")
 - App Store Connect: configure subscription product `premium_monthly_499` + `premium_yearly_1999` (in review state)
 
 **No features paywalled this sprint.** Scaffolding only — flip the switch in 7.1 once RC is verified working.

@@ -4,7 +4,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const USER_AGENT =
-  'EvinCairn/1.0 (https://irisharchaeology.app; contact via app store listing)';
+  'Seanda/1.0 (https://irisharchaeology.app; contact via app store listing)';
 const CACHE_PREFIX = 'geo_v1_';
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 

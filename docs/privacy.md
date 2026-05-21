@@ -1,10 +1,10 @@
-# Privacy Policy — Evin Cairn
+# Privacy Policy — Seanda
 
 **Last updated:** 22 April 2026
 **Developer:** Ultan Kinahan (Individual)
 **Contact:** ultanki@outlook.com
 
-Evin Cairn ("the app") is a free field guide to publicly recorded archaeological monuments in the Republic of Ireland. We have designed it to collect as little information as possible.
+Seanda ("the app") is a free field guide to publicly recorded archaeological monuments in the Republic of Ireland. We have designed it to collect as little information as possible.
 
 ## Information we do NOT collect
 
@@ -29,7 +29,7 @@ If you grant location permission, the app uses your device's location **only on 
 
 Your precise location is never transmitted to any server operated by the developer. The NMS API receives only the rough viewport you are looking at, not a personal identifier.
 
-You can revoke location permission at any time in iOS Settings → Privacy & Security → Location Services → Evin Cairn.
+You can revoke location permission at any time in iOS Settings → Privacy & Security → Location Services → Seanda.
 
 ## Data stored on your device
 

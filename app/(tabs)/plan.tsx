@@ -243,7 +243,7 @@ export default function PlanScreen() {
     const message = formatItinerary(plan);
     try {
       await Share.share({
-        title: `Evin Cairn — ${periodLabel(plan.period)} trip`,
+        title: `Seanda — ${periodLabel(plan.period)} trip`,
         message,
       });
       track('plan_shared', { days: plan.days.length, sites: plan.totalSites });
@@ -739,7 +739,7 @@ export default function PlanScreen() {
 
 // ---------- Itinerary text formatter (used by Share) ----------
 function formatItinerary(plan: TripPlan): string {
-  const header = `Evin Cairn — ${periodLabel(plan.period)} trip`;
+  const header = `Seanda — ${periodLabel(plan.period)} trip`;
   const sub = `${plan.county ? `Co. ${plan.county}` : 'Ireland'} · ${plan.days.length} ${plan.days.length === 1 ? 'day' : 'days'} · ${plan.totalSites} stops · ~${plan.totalKm.toFixed(0)} km`;
   const startLine = plan.start ? `Starting from: ${plan.start.label}` : '';
   const endLine = plan.end
@@ -761,7 +761,7 @@ function formatItinerary(plan: TripPlan): string {
     const routeLine = route ? `\n  Day route: ${route}` : '';
     return `Day ${day.index + 1} — ${day.stops.length} stops · ~${day.totalKm.toFixed(0)} km · Drive ${formatMins(day.driveMinutes)}${routeLine}\n${lines.join('\n')}`;
   });
-  const footer = '\nPlanned with Evin Cairn — Irish Archaeology';
+  const footer = '\nPlanned with Seanda — Irish Archaeology';
   return [header, sub, startLine, endLine, '', ...dayBlocks, footer].filter(Boolean).join('\n');
 }
 
